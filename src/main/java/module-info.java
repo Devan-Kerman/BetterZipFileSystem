@@ -1,4 +1,4 @@
-import net.devtech.betterzipfs.ZipFSProvider;
+import net.devtech.betterzipfs.impl.ZipFSProvider;
 
 module net.devtech.betterzipfs {
 	requires jdk.unsupported;

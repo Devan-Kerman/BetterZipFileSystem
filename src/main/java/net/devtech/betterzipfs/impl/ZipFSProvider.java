@@ -21,30 +21,42 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 
 // todo implement newOutputStream/newInputStream/newFileChannel
-class ZipFSProvider extends FileSystemProvider {
-	public static final ZipFSProvider INSTANCE = new ZipFSProvider();
-	final Map<FileSystem, ZipFS> filesystems = new HashMap<>();
+public class ZipFSProvider extends FileSystemProvider {
+	static final Map<FileSystem, ZipFS> FILE_SYSTEMS = new HashMap<>();
+	private static ZipFSProvider instance;
+	
+	final Function<FileSystem, ZipFS> wrap = fs -> new ZipFS(fs, this);
+	
+	public static ZipFSProvider getProvider() {
+		if(instance == null) {
+			return new ZipFSProvider();
+		} else {
+			return instance;
+		}
+	}
 	
 	public ZipFSProvider() {
+		instance = this;
 	}
 	
 	@Override
 	public String getScheme() {
-		return "zip";
+		return "jar";
 	}
 	
 	@Override
 	public FileSystem newFileSystem(URI uri, Map<String, ?> env) throws IOException {
-		FileSystem system = ZipFileSystemProviderHolder.PROVIDER.newFileSystem(uri, env);
-		return this.filesystems.computeIfAbsent(system, ZipFS::new);
+		FileSystem system = ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.newFileSystem(uri, env);
+		return FILE_SYSTEMS.computeIfAbsent(system, this.wrap);
 	}
 	
 	@Override
 	public FileSystem getFileSystem(URI uri) {
-		FileSystem system = ZipFileSystemProviderHolder.PROVIDER.getFileSystem(uri);
-		return this.filesystems.computeIfAbsent(system, ZipFS::new);
+		FileSystem system = ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.getFileSystem(uri);
+		return FILE_SYSTEMS.computeIfAbsent(system, this.wrap);
 	}
 	
 	@Override
@@ -59,8 +71,8 @@ class ZipFSProvider extends FileSystemProvider {
 	
 	@Override
 	public FileSystem newFileSystem(Path path, Map<String, ?> env) throws IOException {
-		FileSystem system = ZipFileSystemProviderHolder.PROVIDER.newFileSystem(path, env);
-		return this.filesystems.computeIfAbsent(system, ZipFS::new);
+		FileSystem system = ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.newFileSystem(path, env);
+		return FILE_SYSTEMS.computeIfAbsent(system, this.wrap);
 	}
 	
 	@Override
@@ -68,7 +80,7 @@ class ZipFSProvider extends FileSystemProvider {
 		boolean write = options.contains(StandardOpenOption.WRITE) || options.contains(StandardOpenOption.APPEND);
 		ZipPath zip = zip(path);
 		try {
-			return zip.getOrCreateContents(() -> ZipFileSystemProviderHolder.PROVIDER.newByteChannel(zip.delegate, options, attrs), write);
+			return zip.getOrCreateContents(() -> ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.newByteChannel(zip.delegate, options, attrs), write);
 		} catch(Exception e) {
 			throw ZipFSReflect.rethrow(e);
 		}
@@ -77,7 +89,7 @@ class ZipFSProvider extends FileSystemProvider {
 	@Override
 	public DirectoryStream<Path> newDirectoryStream(Path dir, DirectoryStream.Filter<? super Path> filter) throws IOException {
 		return new DirectoryStream<>() {
-			final DirectoryStream<Path> original = ZipFileSystemProviderHolder.PROVIDER.newDirectoryStream(unwrap(dir), filter);
+			final DirectoryStream<Path> original = ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.newDirectoryStream(unwrap(dir), filter);
 			
 			@Override
 			public Iterator<Path> iterator() {
@@ -93,12 +105,12 @@ class ZipFSProvider extends FileSystemProvider {
 	
 	@Override
 	public void createDirectory(Path dir, FileAttribute<?>... attrs) throws IOException {
-		ZipFileSystemProviderHolder.PROVIDER.createDirectory(unwrap(dir), attrs);
+		ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.createDirectory(unwrap(dir), attrs);
 	}
 	
 	@Override
 	public void delete(Path path) throws IOException {
-		ZipFileSystemProviderHolder.PROVIDER.delete(unwrap(path));
+		ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.delete(unwrap(path));
 		ZipPath zip = zip(path);
 		zip.deleteContents(new ZipPath.ZipContents());
 		zip.getFileSystem().remove(zip);
@@ -119,7 +131,7 @@ class ZipFSProvider extends FileSystemProvider {
 			byte[] fromPath = ZipFSReflect.ZipPath.getResolvedPath(fromD), toPath = ZipFSReflect.ZipPath.getResolvedPath(toD);
 			BasicFileAttributes fromEntry = ZipFSReflect.ZipFS.getEntry(fromS, fromPath), toEntry = ZipFSReflect.ZipFS.getEntry(toS, toPath);
 			if(toEntry == null) {
-				ZipFileSystemProviderHolder.PROVIDER.newOutputStream(toD).close();
+				ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.newOutputStream(toD).close();
 				toEntry = ZipFSReflect.ZipFS.getEntry(toS, toPath);
 			}
 			if(ZipFSReflect.Entry.getCompressionMethod(fromEntry) == ZipFSReflect.Entry.getCompressionMethod(toEntry)) {
@@ -134,7 +146,7 @@ class ZipFSProvider extends FileSystemProvider {
 		
 		if(fallback) {
 			try {
-				ZipFileSystemProviderHolder.PROVIDER.copy(fromD, toD, options);
+				ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.copy(fromD, toD, options);
 			} catch(IOException e) {
 				to.deleteContents(new ZipPath.ZipContents());
 				throw e;
@@ -150,42 +162,42 @@ class ZipFSProvider extends FileSystemProvider {
 	
 	@Override
 	public boolean isSameFile(Path path, Path path2) throws IOException {
-		return ZipFileSystemProviderHolder.PROVIDER.isSameFile(unwrap(path), unwrap(path2));
+		return ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.isSameFile(unwrap(path), unwrap(path2));
 	}
 	
 	@Override
 	public boolean isHidden(Path path) throws IOException {
-		return ZipFileSystemProviderHolder.PROVIDER.isHidden(unwrap(path));
+		return ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.isHidden(unwrap(path));
 	}
 	
 	@Override
 	public FileStore getFileStore(Path path) throws IOException {
-		return new ZipFileStore(ZipFileSystemProviderHolder.PROVIDER.getFileStore(unwrap(path)));
+		return new ZipFileStore(ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.getFileStore(unwrap(path)));
 	}
 	
 	@Override
 	public void checkAccess(Path path, AccessMode... modes) throws IOException {
-		ZipFileSystemProviderHolder.PROVIDER.checkAccess(unwrap(path), modes);
+		ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.checkAccess(unwrap(path), modes);
 	}
 	
 	@Override
 	public <V extends FileAttributeView> V getFileAttributeView(Path path, Class<V> type, LinkOption... options) {
-		return ZipFileSystemProviderHolder.PROVIDER.getFileAttributeView(unwrap(path), type, options);
+		return ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.getFileAttributeView(unwrap(path), type, options);
 	}
 	
 	@Override
 	public <A extends BasicFileAttributes> A readAttributes(Path path, Class<A> type, LinkOption... options) throws IOException {
-		return ZipFileSystemProviderHolder.PROVIDER.readAttributes(unwrap(path), type, options);
+		return ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.readAttributes(unwrap(path), type, options);
 	}
 	
 	@Override
 	public Map<String, Object> readAttributes(Path path, String attributes, LinkOption... options) throws IOException {
-		return ZipFileSystemProviderHolder.PROVIDER.readAttributes(unwrap(path), attributes, options);
+		return ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.readAttributes(unwrap(path), attributes, options);
 	}
 	
 	@Override
 	public void setAttribute(Path path, String attribute, Object value, LinkOption... options) throws IOException {
-		ZipFileSystemProviderHolder.PROVIDER.setAttribute(path, attribute, value, options);
+		ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.setAttribute(path, attribute, value, options);
 	}
 	
 	static ZipPath zip(Path path) {

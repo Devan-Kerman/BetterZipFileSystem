@@ -19,9 +19,11 @@ class ZipFS extends FileSystem {
 	final Map<ByteArrayWrapper, ZipPath> pathCache = new ConcurrentHashMap<>();
 	final UnaryOperator<Path> converter = this::wrap;
 	final Path root;
+	final ZipFSProvider provider;
 	
-	public ZipFS(FileSystem zipfs) {
+	public ZipFS(FileSystem zipfs, ZipFSProvider provider) {
 		this.zipfs = zipfs;
+		this.provider = provider;
 		Iterable<Path> directories = zipfs.getRootDirectories();
 		Iterator<Path> iterator = directories.iterator();
 		this.root = this.wrap(iterator.next());
@@ -52,7 +54,7 @@ class ZipFS extends FileSystem {
 	
 	@Override
 	public FileSystemProvider provider() {
-		return ZipFSProvider.INSTANCE;
+		return this.provider;
 	}
 	
 	@Override
@@ -61,7 +63,7 @@ class ZipFS extends FileSystem {
 			value.deleteContents(null);
 		}
 		this.zipfs.close();
-		ZipFSProvider.INSTANCE.filesystems.remove(this.zipfs, this);
+		this.provider.FILE_SYSTEMS.remove(this.zipfs, this);
 	}
 	
 	@Override

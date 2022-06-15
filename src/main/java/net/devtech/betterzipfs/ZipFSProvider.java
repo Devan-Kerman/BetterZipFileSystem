@@ -39,7 +39,7 @@ public class ZipFSProvider extends FileSystemProvider {
 	
 	@Override
 	public String getScheme() {
-		return "jar";
+		return "zip";
 	}
 	
 	@Override

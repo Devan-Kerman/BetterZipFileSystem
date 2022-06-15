@@ -68,8 +68,15 @@ class ZipPath implements Path {
 		if((this.contents.isWrite || !isWrite) && this.contents.channel != null) {
 			seek = this.contents.channel;
 		} else {
-			this.contents.isWrite = isWrite;
-			this.contents.channel = seek = create.call();
+			ZipContents contents = this.contents;
+			if(isWrite) {
+				this.flushContents();
+				contents = new ZipContents();
+				contents.ref = 1;
+				this.contents = contents;
+			}
+			contents.isWrite = isWrite;
+			contents.channel = seek = create.call();
 		}
 		return new SeekableByteChannelWrapper(seek);
 	}
@@ -92,12 +99,6 @@ class ZipPath implements Path {
 		} else {
 			contents.channel = null;
 		}
-		
-		ZipContents newContents = new ZipContents();
-		newContents.isWrite = contents.isWrite;
-		newContents.channel = contents.channel;
-		newContents.ref = 1;
-		this.contents = newContents;
 		
 		if(shouldCopy) {
 			channel.close();

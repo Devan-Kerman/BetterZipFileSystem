@@ -1,17 +1,19 @@
 package net.devtech.betterzipfs.impl;
 
+import java.io.InputStream;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.lang.invoke.VarHandle;
+import java.nio.channels.SeekableByteChannel;
 import java.nio.file.FileSystem;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 
 public class ZipFSReflect {
 	public static final Class<?> ZIPFS;
-	private static final MethodHandle ZIPFS_SYNC, ZIPFS_ENTRY, ZIPPATH_RESOLVED_PATH, ZIPFS_GETZIPFILE, ZIPFS_UPDATE, BEGIN_WRITE, END_WRITE;
-	private static final VarHandle ENTRY_METHOD, ENTRY_BYTES, ZIPFS_HAS_UPDATE, ENTRY_CRC, ENTRY_CSIZE, ENTRY_SIZE, ENTRY_EXTRA, ENTRY_TYPE;
+	private static final MethodHandle ZIPFS_SYNC, ZIPFS_ENTRY, ZIPPATH_RESOLVED_PATH, ZIPFS_GETZIPFILE, ZIPFS_UPDATE, BEGIN_WRITE, END_WRITE, ENTRY_IN_STREAM_CTOR;
+	private static final VarHandle ENTRY_METHOD, ENTRY_BYTES, ZIPFS_HAS_UPDATE, ENTRY_CRC, ENTRY_CSIZE, ENTRY_SIZE, ENTRY_EXTRA, ENTRY_TYPE, ZIPFS_CH;
 	
 	static {
 		boolean needsUnsafe = false;
@@ -45,14 +47,17 @@ public class ZipFSReflect {
 			
 			MethodHandles.Lookup lookup = MethodHandles.lookup();
 			MethodHandles.Lookup privateLookup = MethodHandles.privateLookupIn(zipfs, lookup);
-			Class<?> entry = null;
+			Class<?> entry = null, entryStream = null;
 			for(Class<?> inner : zipfs.getDeclaredClasses()) {
-				if(inner.getName().endsWith("Entry")) {
+				if(inner.getSimpleName().equals("Entry")) {
 					entry = inner;
-					break;
+				} else if(inner.getName().endsWith("EntryInputStream")) {
+					entryStream = inner;
 				}
 			}
 			
+			ZIPFS_CH = privateLookup.findVarHandle(zipfs, "ch", SeekableByteChannel.class);
+			ENTRY_IN_STREAM_CTOR = privateLookup.findConstructor(entryStream, MethodType.methodType(void.class, zipfs, entry, SeekableByteChannel.class));
 			ZIPFS_SYNC = privateLookup.findVirtual(zipfs, "sync", MethodType.methodType(void.class));
 			ZIPFS_ENTRY = privateLookup.findVirtual(zipfs, "getEntry", MethodType.methodType(entry, byte[].class));
 			ZIPFS_GETZIPFILE = privateLookup.findVirtual(zipfs, "getZipFile", MethodType.methodType(Path.class));
@@ -68,6 +73,7 @@ public class ZipFSReflect {
 			END_WRITE = privateLookup.findVirtual(zipfs, "endWrite", MethodType.methodType(void.class));
 			ENTRY_EXTRA = privateLookup.findVarHandle(entry, "extra", byte[].class);
 			ENTRY_TYPE = privateLookup.findVarHandle(entry, "type", int.class);
+			
 			ZIPFS = zipfs;
 		} catch(ReflectiveOperationException e) {
 			if(!needsUnsafe) {
@@ -187,6 +193,18 @@ public class ZipFSReflect {
 			return (int) ENTRY_TYPE.get(entry);
 		}
 		
+		public static InputStream getCENInputStream(FileSystem zipfs, BasicFileAttributes entry) {
+			try {
+				SeekableByteChannel ch = (SeekableByteChannel) ZIPFS_CH.get(zipfs);
+				return (InputStream) ENTRY_IN_STREAM_CTOR.invoke(zipfs, entry, ch);
+			} catch(Throwable e) {
+				throw rethrow(e);
+			}
+		}
+		
+		public static void setType(BasicFileAttributes entry, int type) {
+			ENTRY_TYPE.set(entry, type);
+		}
 	}
 	
 	public static final class ZipPath {

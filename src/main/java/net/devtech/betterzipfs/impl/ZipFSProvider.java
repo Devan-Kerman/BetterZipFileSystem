@@ -1,6 +1,7 @@
 package net.devtech.betterzipfs.impl;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
@@ -91,6 +92,12 @@ public class ZipFSProvider extends FileSystemProvider {
 	
 	@Override
 	public DirectoryStream<Path> newDirectoryStream(Path dir, DirectoryStream.Filter<? super Path> filter) throws IOException {
+		ZipFS system = zip(dir).getFileSystem();
+		for(ZipPath value : system.pathCache.values()) {
+			if(value.startsWith(dir)) {
+				value.flushContents();
+			}
+		}
 		return new DirectoryStream<>() {
 			final DirectoryStream<Path> original = ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.newDirectoryStream(unwrap(dir), filter);
 			
@@ -137,17 +144,11 @@ public class ZipFSProvider extends FileSystemProvider {
 			
 			int method = ZipFSReflect.Entry.getCompressionMethod(fromEntry);
 			int type = ZipFSReflect.Entry.getType(fromEntry);
-			if(type == 1) {
-				// read from CEN
-				SeekableByteChannel readChannel = this.newByteChannel(source, Set.of());
-				ByteBuffer contents = new SeekableByteChannelCopy(readChannel).contents;
-				try(SeekableByteChannel channel = this.newByteChannel(source, WRITE_ARGS)) {
-					channel.write(contents);
-				}
-				to.inheritContents(from);
-				from.flushContents();
-				fromEntry = ZipFSReflect.ZipFS.getEntry(fromS, fromPath);
-				type = ZipFSReflect.Entry.getType(fromEntry);
+			if(type == 1 || type == 4) {
+				InputStream stream = ZipFSReflect.Entry.getCENInputStream(fromS, fromEntry);
+				ZipFSReflect.Entry.setType(fromEntry, 2);
+				ZipFSReflect.Entry.setBytes(fromEntry, stream.readAllBytes());
+				type = 2;
 			}
 			
 			if(toEntry == null) {

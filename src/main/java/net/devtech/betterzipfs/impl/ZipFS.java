@@ -16,7 +16,7 @@ import java.util.function.UnaryOperator;
 
 class ZipFS extends FileSystem {
 	final FileSystem zipfs;
-	final Map<ByteArrayWrapper, ZipPath> pathCache = new ConcurrentHashMap<>(); // todo avoid cache unless zip path actually has stuff in it
+	final Map<ByteArrayWrapper, ZipPath> pathCache = new ConcurrentHashMap<>();
 	final UnaryOperator<Path> converter = this::wrap;
 	final Path root;
 	
@@ -111,7 +111,7 @@ class ZipFS extends FileSystem {
 	}
 	
 	@Override
-	public WatchService newWatchService() throws IOException {
+	public WatchService newWatchService() {
 		throw new UnsupportedOperationException();
 	}
 	

@@ -52,7 +52,12 @@ import net.devtech.betterzipfs.ZipFS;
 
 public class ZipFsTests {
 	public static void main(String[] args) throws IOException {
-		try(FileSystem src = ZipFS.createZip(Path.of("test.jar")); FileSystem dst = ZipFS.createZip(Path.of("out.jar"))) {
+		try(
+			// if BetterZipFileSystem is present when the FileSystemProvider service is loaded, then you can just use the normal NIO API
+			FileSystem src = FileSystems.newFileSystem(Path.of("test.jar"), Map.of("create", "true")); 
+			// otherwise the API can still be accessed through the ZipFS class
+		 	FileSystem dst = ZipFS.newFileSystem(Path.of("test.jar"), Map.of("create", "true")) 
+		) {
 			Path path = src.getPath("test.txt");
 			String test = "hello my friends, how do you do?";
 			Files.writeString(path, test, StandardCharsets.UTF_8);

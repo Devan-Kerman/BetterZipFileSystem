@@ -138,6 +138,7 @@ public class ZipFSProvider extends FileSystemProvider {
 			}
 			if(ZipFSReflect.Entry.getCompressionMethod(fromEntry) == ZipFSReflect.Entry.getCompressionMethod(toEntry)) {
 				ZipFSReflect.Entry.setBytes(toEntry, ZipFSReflect.Entry.getBytes(fromEntry));
+				ZipFSReflect.Entry.setExtraBytes(toEntry, ZipFSReflect.Entry.getExtraBytes(fromEntry));
 				ZipFSReflect.Entry.setCRC(toEntry, ZipFSReflect.Entry.getCRC(fromEntry));
 				ZipFSReflect.Entry.setSize(toEntry, ZipFSReflect.Entry.getSize(fromEntry));
 				ZipFSReflect.Entry.setCSize(toEntry, ZipFSReflect.Entry.getCSize(fromEntry));

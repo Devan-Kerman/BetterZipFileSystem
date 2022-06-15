@@ -11,7 +11,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 public class ZipFSReflect {
 	public static final Class<?> ZIPFS;
 	private static final MethodHandle ZIPFS_SYNC, ZIPFS_ENTRY, ZIPPATH_RESOLVED_PATH, ZIPFS_GETZIPFILE, ZIPFS_UPDATE, BEGIN_WRITE, END_WRITE;
-	private static final VarHandle ENTRY_METHOD, ENTRY_BYTES, ZIPFS_HAS_UPDATE, ENTRY_CRC, ENTRY_CSIZE, ENTRY_SIZE;
+	private static final VarHandle ENTRY_METHOD, ENTRY_BYTES, ZIPFS_HAS_UPDATE, ENTRY_CRC, ENTRY_CSIZE, ENTRY_SIZE, ENTRY_EXTRA;
 	static {
 		boolean needsUnsafe = false;
 		try {
@@ -63,6 +63,7 @@ public class ZipFSReflect {
 			ZIPFS_HAS_UPDATE = privateLookup.findVarHandle(zipfs, "hasUpdate", boolean.class);
 			BEGIN_WRITE = privateLookup.findVirtual(zipfs, "beginWrite", MethodType.methodType(void.class));
 			END_WRITE = privateLookup.findVirtual(zipfs, "endWrite", MethodType.methodType(void.class));
+			ENTRY_EXTRA = privateLookup.findVarHandle(entry, "extra", byte[].class);
 			ZIPFS = zipfs;
 		} catch(ReflectiveOperationException e) {
 			if(!needsUnsafe) {
@@ -132,6 +133,14 @@ public class ZipFSReflect {
 		
 		public static void setBytes(BasicFileAttributes entry, byte[] bytes) {
 			ENTRY_BYTES.set(entry, bytes);
+		}
+		
+		public static byte[] getExtraBytes(BasicFileAttributes entry) {
+			return (byte[]) ENTRY_EXTRA.get(entry);
+		}
+		
+		public static void setExtraBytes(BasicFileAttributes entry, byte[] bytes) {
+			ENTRY_EXTRA.set(entry, bytes);
 		}
 		
 		public static long getCRC(BasicFileAttributes entry) {

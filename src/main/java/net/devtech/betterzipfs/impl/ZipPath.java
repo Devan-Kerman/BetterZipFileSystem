@@ -63,6 +63,11 @@ class ZipPath implements Path {
 		}
 	}
 	
+	@Override
+	public boolean endsWith(String other) {
+		return this.toString().endsWith(other);
+	}
+	
 	public SeekableByteChannel getOrCreateContents(Callable<SeekableByteChannel> create, boolean isWrite) throws Exception {
 		SeekableByteChannel seek;
 		if((this.contents.isWrite || !isWrite) && this.contents.channel != null) {

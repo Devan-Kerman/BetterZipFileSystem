@@ -11,7 +11,8 @@ import java.nio.file.attribute.BasicFileAttributes;
 public class ZipFSReflect {
 	public static final Class<?> ZIPFS;
 	private static final MethodHandle ZIPFS_SYNC, ZIPFS_ENTRY, ZIPPATH_RESOLVED_PATH, ZIPFS_GETZIPFILE, ZIPFS_UPDATE, BEGIN_WRITE, END_WRITE;
-	private static final VarHandle ENTRY_METHOD, ENTRY_BYTES, ZIPFS_HAS_UPDATE, ENTRY_CRC, ENTRY_CSIZE, ENTRY_SIZE, ENTRY_EXTRA;
+	private static final VarHandle ENTRY_METHOD, ENTRY_BYTES, ZIPFS_HAS_UPDATE, ENTRY_CRC, ENTRY_CSIZE, ENTRY_SIZE, ENTRY_EXTRA, ENTRY_TYPE;
+	
 	static {
 		boolean needsUnsafe = false;
 		try {
@@ -28,7 +29,9 @@ public class ZipFSReflect {
 		}
 		
 		if(!canUseUnsafe && needsUnsafe) {
-			throw new IllegalStateException("Unsafe is required for reflection access bypass! Alternatively, try adding \"--add-opens=jdk.zipfs/jdk.nio.zipfs=ALL-UNNAMED\" to jvm args.");
+			throw new IllegalStateException(
+					"Unsafe is required for reflection access bypass! Alternatively, try adding \"--add-opens=jdk.zipfs/jdk.nio.zipfs=ALL-UNNAMED\" "
+					+ "to jvm args.");
 		}
 		
 		
@@ -64,10 +67,14 @@ public class ZipFSReflect {
 			BEGIN_WRITE = privateLookup.findVirtual(zipfs, "beginWrite", MethodType.methodType(void.class));
 			END_WRITE = privateLookup.findVirtual(zipfs, "endWrite", MethodType.methodType(void.class));
 			ENTRY_EXTRA = privateLookup.findVarHandle(entry, "extra", byte[].class);
+			ENTRY_TYPE = privateLookup.findVarHandle(entry, "type", int.class);
 			ZIPFS = zipfs;
 		} catch(ReflectiveOperationException e) {
 			if(!needsUnsafe) {
-				new UnsupportedOperationException("Unsafe Reflection Restriction Bypass is Unsupported on this machine!", UnsafeReflection.ERROR).printStackTrace();
+				new UnsupportedOperationException(
+						"Unsafe Reflection Restriction Bypass is Unsupported on this machine!",
+						UnsafeReflection.ERROR
+				).printStackTrace();
 			}
 			throw new UnsupportedOperationException("Try adding \"--add-opens=jdk.zipfs/jdk.nio.zipfs=ALL-UNNAMED\" to jvm args.", e);
 		} finally {
@@ -75,6 +82,15 @@ public class ZipFSReflect {
 				UnsafeReflection.endUnsafe(ZipFSReflect.class, module);
 			}
 		}
+	}
+	
+	/**
+	 * @return nothing, because it throws
+	 * @throws T rethrows {@code throwable}
+	 */
+	@SuppressWarnings("unchecked")
+	public static <T extends Throwable> RuntimeException rethrow(Throwable throwable) throws T {
+		throw (T) throwable;
 	}
 	
 	public static final class ZipFS {
@@ -166,6 +182,11 @@ public class ZipFSReflect {
 		public static void setCSize(BasicFileAttributes entry, long bytes) {
 			ENTRY_CSIZE.set(entry, bytes);
 		}
+		
+		public static int getType(BasicFileAttributes entry) {
+			return (int) ENTRY_TYPE.get(entry);
+		}
+		
 	}
 	
 	public static final class ZipPath {
@@ -176,14 +197,5 @@ public class ZipFSReflect {
 				throw rethrow(e);
 			}
 		}
-	}
-	
-	/**
-	 * @return nothing, because it throws
-	 * @throws T rethrows {@code throwable}
-	 */
-	@SuppressWarnings("unchecked")
-	public static <T extends Throwable> RuntimeException rethrow(Throwable throwable) throws T {
-		throw (T) throwable;
 	}
 }

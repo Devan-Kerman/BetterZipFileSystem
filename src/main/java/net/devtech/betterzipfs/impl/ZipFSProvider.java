@@ -136,15 +136,18 @@ public class ZipFSProvider extends FileSystemProvider {
 			BasicFileAttributes fromEntry = ZipFSReflect.ZipFS.getEntry(fromS, fromPath), toEntry = ZipFSReflect.ZipFS.getEntry(toS, toPath);
 			
 			int method = ZipFSReflect.Entry.getCompressionMethod(fromEntry);
-			if(method == 1) {
+			int type = ZipFSReflect.Entry.getType(fromEntry);
+			if(type == 1) {
 				// read from CEN
 				SeekableByteChannel readChannel = this.newByteChannel(source, Set.of());
 				ByteBuffer contents = new SeekableByteChannelCopy(readChannel).contents;
-				try(SeekableByteChannel writeChannel = this.newByteChannel(source, WRITE_ARGS)) {
-					writeChannel.write(contents);
+				try(SeekableByteChannel channel = this.newByteChannel(source, WRITE_ARGS)) {
+					channel.write(contents);
 				}
+				to.inheritContents(from);
+				from.flushContents();
 				fromEntry = ZipFSReflect.ZipFS.getEntry(fromS, fromPath);
-				method = ZipFSReflect.Entry.getCompressionMethod(fromEntry);
+				type = ZipFSReflect.Entry.getType(fromEntry);
 			}
 			
 			if(toEntry == null) {
@@ -152,7 +155,7 @@ public class ZipFSProvider extends FileSystemProvider {
 				toEntry = ZipFSReflect.ZipFS.getEntry(toS, toPath);
 			}
 			
-			if(method == 2 && method == ZipFSReflect.Entry.getCompressionMethod(toEntry)) {
+			if(type == 2 && method == ZipFSReflect.Entry.getCompressionMethod(toEntry)) {
 				ZipFSReflect.Entry.setBytes(toEntry, ZipFSReflect.Entry.getBytes(fromEntry));
 				ZipFSReflect.Entry.setExtraBytes(toEntry, ZipFSReflect.Entry.getExtraBytes(fromEntry));
 				ZipFSReflect.Entry.setCRC(toEntry, ZipFSReflect.Entry.getCRC(fromEntry));

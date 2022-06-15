@@ -1,11 +1,11 @@
-package net.devtech.betterzipfs.reflect;
+package net.devtech.betterzipfs.impl;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 
 import sun.misc.Unsafe;
 
-public class UnsafeReflection {
+class UnsafeReflection {
 	public static final boolean IS_SUPPORTED;
 	public static final Object UNSAFE;
 	public static final Throwable ERROR;

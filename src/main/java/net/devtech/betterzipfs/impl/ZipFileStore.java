@@ -1,11 +1,11 @@
-package net.devtech.betterzipfs;
+package net.devtech.betterzipfs.impl;
 
 import java.io.IOException;
 import java.nio.file.FileStore;
 import java.nio.file.attribute.FileAttributeView;
 import java.nio.file.attribute.FileStoreAttributeView;
 
-public class ZipFileStore extends FileStore {
+class ZipFileStore extends FileStore {
 	final FileStore delegate;
 	
 	public ZipFileStore(FileStore delegate) {this.delegate = delegate;}

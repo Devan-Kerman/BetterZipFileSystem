@@ -1,4 +1,4 @@
-package net.devtech.betterzipfs;
+package net.devtech.betterzipfs.impl;
 
 import java.io.IOException;
 import java.net.URI;
@@ -9,8 +9,6 @@ import java.nio.file.CopyOption;
 import java.nio.file.DirectoryStream;
 import java.nio.file.FileStore;
 import java.nio.file.FileSystem;
-import java.nio.file.FileSystemAlreadyExistsException;
-import java.nio.file.FileSystemNotFoundException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.OpenOption;
@@ -27,12 +25,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.zip.ZipException;
 
-import net.devtech.betterzipfs.reflect.ZipFSReflect;
-import net.devtech.betterzipfs.util.MappingIterable;
-
-public class ZipFSProvider extends FileSystemProvider {
+// todo implement newOutputStream/newInputStream/newFileChannel
+class ZipFSProvider extends FileSystemProvider {
 	public static final ZipFSProvider INSTANCE = new ZipFSProvider();
-	private final Map<Path, ZipFS> filesystems = new HashMap<>();
+	final Map<FileSystem, ZipFS> filesystems = new HashMap<>();
 	
 	public ZipFSProvider() {
 	}
@@ -44,38 +40,14 @@ public class ZipFSProvider extends FileSystemProvider {
 	
 	@Override
 	public FileSystem newFileSystem(URI uri, Map<String, ?> env) throws IOException {
-		Path path = this.uriToPath(uri);
-		synchronized(this.filesystems) {
-			Path realPath = null;
-			if(this.ensureFile(path)) {
-				realPath = path.toRealPath();
-				if(this.filesystems.containsKey(realPath)) {
-					throw new FileSystemAlreadyExistsException();
-				}
-			}
-			ZipFS zipfs = this.getZipFileSystem(path, env);
-			if(realPath == null) {  // newly created
-				realPath = path.toRealPath();
-			}
-			this.filesystems.put(realPath, zipfs);
-			return zipfs;
-		}
+		FileSystem system = ZipFileSystemProviderHolder.PROVIDER.newFileSystem(uri, env);
+		return filesystems.computeIfAbsent(system, ZipFS::new);
 	}
 	
 	@Override
 	public FileSystem getFileSystem(URI uri) {
-		synchronized(this.filesystems) {
-			ZipFS zipfs = null;
-			try {
-				zipfs = this.filesystems.get(this.uriToPath(uri).toRealPath());
-			} catch(IOException x) {
-				// ignore the ioe from toRealPath(), return FSNFE
-			}
-			if(zipfs == null) {
-				throw new FileSystemNotFoundException();
-			}
-			return zipfs;
-		}
+		FileSystem system = ZipFileSystemProviderHolder.PROVIDER.getFileSystem(uri);
+		return filesystems.computeIfAbsent(system, ZipFS::new);
 	}
 	
 	@Override
@@ -90,8 +62,8 @@ public class ZipFSProvider extends FileSystemProvider {
 	
 	@Override
 	public FileSystem newFileSystem(Path path, Map<String, ?> env) throws IOException {
-		this.ensureFile(path);
-		return this.getZipFileSystem(path, env);
+		FileSystem system = ZipFileSystemProviderHolder.PROVIDER.newFileSystem(path, env);
+		return filesystems.computeIfAbsent(system, ZipFS::new);
 	}
 	
 	@Override
@@ -162,6 +134,7 @@ public class ZipFSProvider extends FileSystemProvider {
 			byte[] fromPath = ZipFSReflect.ZipPath.getResolvedPath(fromD), toPath = ZipFSReflect.ZipPath.getResolvedPath(toD);
 			BasicFileAttributes fromEntry = ZipFSReflect.ZipFS.getEntry(fromS, fromPath), toEntry = ZipFSReflect.ZipFS.getEntry(toS, toPath);
 			if(toEntry == null) {
+				// todo better way of creating empty entries
 				ZipFileSystemProviderHolder.PROVIDER.newOutputStream(toD).close();
 				toEntry = ZipFSReflect.ZipFS.getEntry(toS, toPath);
 			}

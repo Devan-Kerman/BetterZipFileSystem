@@ -1,4 +1,4 @@
-package net.devtech.betterzipfs.reflect;
+package net.devtech.betterzipfs.impl;
 
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
@@ -8,7 +8,8 @@ import java.nio.file.FileSystem;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 
-public class ZipFSReflect {
+class ZipFSReflect {
+	public static final Class<?> ZIPFS;
 	private static final MethodHandle ZIPFS_SYNC, ZIPFS_ENTRY, ZIPPATH_RESOLVED_PATH, ZIPFS_GETZIPFILE, ZIPFS_UPDATE;
 	private static final VarHandle ENTRY_METHOD, ENTRY_BYTES, ZIPFS_HAS_UPDATE, ENTRY_CRC, ENTRY_CSIZE, ENTRY_SIZE;
 	static {
@@ -49,6 +50,7 @@ public class ZipFSReflect {
 			ENTRY_SIZE = privateLookup.findVarHandle(entry, "size", long.class);
 			ZIPPATH_RESOLVED_PATH = privateLookup.findVirtual(zipPath, "getResolvedPath", MethodType.methodType(byte[].class));
 			ZIPFS_HAS_UPDATE = privateLookup.findVarHandle(zipfs, "hasUpdate", boolean.class);
+			ZIPFS = zipfs;
 		} catch(ReflectiveOperationException e) {
 			if(useUnsafe) {
 				throw new UnsupportedOperationException(e);

@@ -1,11 +1,11 @@
-package net.devtech.betterzipfs;
+package net.devtech.betterzipfs.impl;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
 
-public class SeekableByteChannelCopy implements SeekableByteChannel {
+class SeekableByteChannelCopy implements SeekableByteChannel {
 	boolean isOpen = true;
 	final ByteBuffer contents;
 	

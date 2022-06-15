@@ -1,11 +1,11 @@
-package net.devtech.betterzipfs;
+package net.devtech.betterzipfs.impl;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class SeekableByteChannelWrapper implements SeekableByteChannel {
+class SeekableByteChannelWrapper implements SeekableByteChannel {
 	final SeekableByteChannel channel;
 	final AtomicInteger refCounter;
 	boolean isClosed;

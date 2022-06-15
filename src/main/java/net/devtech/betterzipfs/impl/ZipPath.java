@@ -1,19 +1,16 @@
-package net.devtech.betterzipfs;
+package net.devtech.betterzipfs.impl;
 
 import java.io.IOException;
 import java.net.URI;
-import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
-import java.nio.file.FileSystem;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.WatchEvent;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.UnaryOperator;
 
-public class ZipPath implements Path {
+class ZipPath implements Path {
 	static class DataReference {
 		AtomicInteger refCounter = new AtomicInteger();
 		SeekableByteChannel channel;

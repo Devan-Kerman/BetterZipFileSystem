@@ -1,8 +1,8 @@
-package net.devtech.betterzipfs.util;
+package net.devtech.betterzipfs.impl;
 
 import java.util.function.Function;
 
-public record MappingIterable<F, T>(Iterable<F> src, Function<F, T> converter) implements Iterable<T> {
+record MappingIterable<F, T>(Iterable<F> src, Function<F, T> converter) implements Iterable<T> {
 	
 	@Override
 	public java.util.Iterator<T> iterator() {

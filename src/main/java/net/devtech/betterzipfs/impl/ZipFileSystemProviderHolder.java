@@ -1,4 +1,4 @@
-package net.devtech.betterzipfs;
+package net.devtech.betterzipfs.impl;
 
 import java.nio.file.spi.FileSystemProvider;
 

@@ -63,11 +63,6 @@ class ZipPath implements Path {
 		}
 	}
 	
-	@Override
-	public boolean endsWith(String other) {
-		return this.toString().endsWith(other);
-	}
-	
 	public SeekableByteChannel getOrCreateContents(Callable<SeekableByteChannel> create, boolean isWrite) throws Exception {
 		SeekableByteChannel seek;
 		if((this.contents.isWrite || !isWrite) && this.contents.channel != null) {
@@ -88,14 +83,17 @@ class ZipPath implements Path {
 		ZipContents contents = this.contents;
 		boolean copy = (int)ZIP_CONTENTS_REF_COUNTER.getAndAdd(contents, -1) > 1;
 		SeekableByteChannel channel = contents.channel;
+		boolean original = channel != null && !(channel instanceof SeekableByteChannelCopy);
+		contents.isWrite = false;
 		if(copy) {
-			contents.channel = new SeekableByteChannelCopy(channel);
+			if(original) {
+				contents.channel = new SeekableByteChannelCopy(channel);
+			}
 		} else {
 			contents.channel = null;
 		}
-		contents.isWrite = false;
 		
-		if(channel != null && !(channel instanceof SeekableByteChannelCopy)) {
+		if(original) {
 			channel.close();
 		}
 	}

@@ -14,8 +14,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.UnaryOperator;
 
-class ZipFS extends FileSystem {
-	final FileSystem zipfs;
+public class ZipFS extends FileSystem {
+	public final FileSystem zipfs;
 	final Map<ByteArrayWrapper, ZipPath> pathCache = new ConcurrentHashMap<>();
 	final UnaryOperator<Path> converter = this::wrap;
 	final Path root;

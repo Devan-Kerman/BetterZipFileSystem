@@ -8,16 +8,27 @@ import java.nio.file.FileSystem;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 
-class ZipFSReflect {
+public class ZipFSReflect {
 	public static final Class<?> ZIPFS;
-	private static final MethodHandle ZIPFS_SYNC, ZIPFS_ENTRY, ZIPPATH_RESOLVED_PATH, ZIPFS_GETZIPFILE, ZIPFS_UPDATE;
+	private static final MethodHandle ZIPFS_SYNC, ZIPFS_ENTRY, ZIPPATH_RESOLVED_PATH, ZIPFS_GETZIPFILE, ZIPFS_UPDATE, BEGIN_WRITE, END_WRITE;
 	private static final VarHandle ENTRY_METHOD, ENTRY_BYTES, ZIPFS_HAS_UPDATE, ENTRY_CRC, ENTRY_CSIZE, ENTRY_SIZE;
 	static {
-		boolean useUnsafe = false;
+		boolean needsUnsafe = false;
+		try {
+			MethodHandles.privateLookupIn(Class.forName("jdk.nio.zipfs.ZipFileSystem"), MethodHandles.lookup());
+		} catch(ReflectiveOperationException e) {
+			needsUnsafe = true;
+		}
+		
+		boolean canUseUnsafe = false;
 		try {
 			Class.forName("sun.misc.Unsafe");
-			useUnsafe = UnsafeReflection.IS_SUPPORTED;
+			canUseUnsafe = UnsafeReflection.IS_SUPPORTED;
 		} catch(ClassNotFoundException e) {
+		}
+		
+		if(!canUseUnsafe && needsUnsafe) {
+			throw new IllegalStateException("Unsafe is required for reflection access bypass! Alternatively, try adding \"--add-opens=jdk.zipfs/jdk.nio.zipfs=ALL-UNNAMED\" to jvm args.");
 		}
 		
 		
@@ -25,7 +36,7 @@ class ZipFSReflect {
 		try {
 			Class<?> zipfs = Class.forName("jdk.nio.zipfs.ZipFileSystem");
 			Class<?> zipPath = Class.forName("jdk.nio.zipfs.ZipPath");
-			if(useUnsafe) {
+			if(needsUnsafe) {
 				UnsafeReflection.startUnsafe(ZipFSReflect.class, zipfs);
 			}
 			
@@ -50,16 +61,16 @@ class ZipFSReflect {
 			ENTRY_SIZE = privateLookup.findVarHandle(entry, "size", long.class);
 			ZIPPATH_RESOLVED_PATH = privateLookup.findVirtual(zipPath, "getResolvedPath", MethodType.methodType(byte[].class));
 			ZIPFS_HAS_UPDATE = privateLookup.findVarHandle(zipfs, "hasUpdate", boolean.class);
+			BEGIN_WRITE = privateLookup.findVirtual(zipfs, "beginWrite", MethodType.methodType(void.class));
+			END_WRITE = privateLookup.findVirtual(zipfs, "endWrite", MethodType.methodType(void.class));
 			ZIPFS = zipfs;
 		} catch(ReflectiveOperationException e) {
-			if(useUnsafe) {
-				throw new UnsupportedOperationException(e);
-			} else {
+			if(!needsUnsafe) {
 				new UnsupportedOperationException("Unsafe Reflection Restriction Bypass is Unsupported on this machine!", UnsafeReflection.ERROR).printStackTrace();
-				throw new UnsupportedOperationException("Try adding \"--add-opens=jdk.zipfs/jdk.nio.zipfs=ALL-UNNAMED\" to jvm args", e);
 			}
+			throw new UnsupportedOperationException("Try adding \"--add-opens=jdk.zipfs/jdk.nio.zipfs=ALL-UNNAMED\" to jvm args.", e);
 		} finally {
-			if(useUnsafe) {
+			if(needsUnsafe) {
 				UnsafeReflection.endUnsafe(ZipFSReflect.class, module);
 			}
 		}
@@ -68,9 +79,16 @@ class ZipFSReflect {
 	public static final class ZipFS {
 		public static void sync(FileSystem system) {
 			try {
+				BEGIN_WRITE.invoke(system);
 				ZIPFS_SYNC.invoke(system);
 			} catch(Throwable e) {
 				rethrow(e);
+			} finally {
+				try {
+					END_WRITE.invoke(system);
+				} catch(Throwable e) {
+					rethrow(e);
+				}
 			}
 		}
 		

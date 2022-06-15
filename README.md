@@ -43,7 +43,7 @@ repositories {
 }
 
 dependencies {
-    implementation("net.devtech:betterZipFS:1.0.0")
+    implementation("net.devtech:betterZipFS:1.0.1")
 }
 ```
 

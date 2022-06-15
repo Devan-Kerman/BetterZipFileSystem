@@ -25,6 +25,8 @@ import java.util.function.Function;
 
 // todo implement newOutputStream/newInputStream/newFileChannel
 public class ZipFSProvider extends FileSystemProvider {
+	public static boolean overrideDefaultImplementation = System.getProperty("bzfs","override").equals("override");
+	
 	static final Map<FileSystem, ZipFS> FILE_SYSTEMS = new HashMap<>();
 	private static ZipFSProvider instance;
 	
@@ -44,7 +46,7 @@ public class ZipFSProvider extends FileSystemProvider {
 	
 	@Override
 	public String getScheme() {
-		return "jar";
+		return overrideDefaultImplementation ? "jar" : "zip";
 	}
 	
 	@Override

@@ -45,12 +45,6 @@ class ZipFS extends FileSystem {
 		return this.pathCache.computeIfAbsent(wrapper, name -> new ZipPath(this, zipFile));
 	}
 	
-	public Path wrapRef(ZipPath original, Path wrap) {
-		byte[] path = ZipFSReflect.ZipPath.getResolvedPath(wrap);
-		ByteArrayWrapper wrapper = new ByteArrayWrapper(path);
-		return this.pathCache.computeIfAbsent(wrapper, name -> new ZipPath(this, wrap, original.parent, original.reference));
-	}
-	
 	@Override
 	public FileSystemProvider provider() {
 		return ZipFSProvider.INSTANCE;
@@ -59,9 +53,7 @@ class ZipFS extends FileSystem {
 	@Override
 	public void close() throws IOException {
 		for(ZipPath value : this.pathCache.values()) {
-			if(value.reference.channel != null) {
-				value.reference.channel.close();
-			}
+			value.deleteContents(null);
 		}
 		this.zipfs.close();
 		ZipFSProvider.INSTANCE.filesystems.remove(this.zipfs, this);

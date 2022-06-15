@@ -41,13 +41,13 @@ class ZipFSProvider extends FileSystemProvider {
 	@Override
 	public FileSystem newFileSystem(URI uri, Map<String, ?> env) throws IOException {
 		FileSystem system = ZipFileSystemProviderHolder.PROVIDER.newFileSystem(uri, env);
-		return filesystems.computeIfAbsent(system, ZipFS::new);
+		return this.filesystems.computeIfAbsent(system, ZipFS::new);
 	}
 	
 	@Override
 	public FileSystem getFileSystem(URI uri) {
 		FileSystem system = ZipFileSystemProviderHolder.PROVIDER.getFileSystem(uri);
-		return filesystems.computeIfAbsent(system, ZipFS::new);
+		return this.filesystems.computeIfAbsent(system, ZipFS::new);
 	}
 	
 	@Override
@@ -63,24 +63,18 @@ class ZipFSProvider extends FileSystemProvider {
 	@Override
 	public FileSystem newFileSystem(Path path, Map<String, ?> env) throws IOException {
 		FileSystem system = ZipFileSystemProviderHolder.PROVIDER.newFileSystem(path, env);
-		return filesystems.computeIfAbsent(system, ZipFS::new);
+		return this.filesystems.computeIfAbsent(system, ZipFS::new);
 	}
 	
 	@Override
 	public SeekableByteChannel newByteChannel(Path path, Set<? extends OpenOption> options, FileAttribute<?>... attrs) throws IOException {
 		boolean write = options.contains(StandardOpenOption.WRITE) || options.contains(StandardOpenOption.APPEND);
 		ZipPath zip = zip(path);
-		SeekableByteChannel channel;
-		if((!write || zip.reference.isWrite) && zip.reference.channel != null) {
-			channel = zip.reference.channel;
-		} else {
-			zip.reference.close(false);
-			channel = zip.reference.channel = ZipFileSystemProviderHolder.PROVIDER.newByteChannel(zip.delegate, options, attrs);
-			zip.reference.isWrite = write;
-			zip.reference.refCounter.set(1);
+		try {
+			return zip.getOrCreateContents(() -> ZipFileSystemProviderHolder.PROVIDER.newByteChannel(zip.delegate, options, attrs), write);
+		} catch(Exception e) {
+			throw ZipFSReflect.rethrow(e);
 		}
-		
-		return new SeekableByteChannelWrapper(channel, zip.reference.refCounter);
 	}
 	
 	@Override
@@ -109,11 +103,7 @@ class ZipFSProvider extends FileSystemProvider {
 	public void delete(Path path) throws IOException {
 		ZipFileSystemProviderHolder.PROVIDER.delete(unwrap(path));
 		ZipPath zip = zip(path);
-		if(zip.reference.channel != null) {
-			SeekableByteChannel channel = new SeekableByteChannelCopy(zip.reference.channel);
-			zip.reference.close(false);
-			zip.reference.channel = channel;
-		}
+		zip.deleteContents(new ZipPath.ZipContents());
 		zip.getFileSystem().remove(zip);
 	}
 	
@@ -122,11 +112,9 @@ class ZipFSProvider extends FileSystemProvider {
 		ZipPath from = zip(source), to = zip(target);
 		Path fromD = from.delegate;
 		Path toD = to.delegate;
-		if(from.reference.isWrite) {
-			SeekableByteChannel channel = new SeekableByteChannelCopy(from.reference.channel);
-			from.reference.close(true);
-			from.reference.channel = channel;
-		}
+		
+		to.inheritContents(from);
+		from.flushContents(); // write to zip file to compress
 		
 		FileSystem fromS = fromD.getFileSystem(), toS = toD.getFileSystem();
 		boolean fallback = true;
@@ -134,7 +122,6 @@ class ZipFSProvider extends FileSystemProvider {
 			byte[] fromPath = ZipFSReflect.ZipPath.getResolvedPath(fromD), toPath = ZipFSReflect.ZipPath.getResolvedPath(toD);
 			BasicFileAttributes fromEntry = ZipFSReflect.ZipFS.getEntry(fromS, fromPath), toEntry = ZipFSReflect.ZipFS.getEntry(toS, toPath);
 			if(toEntry == null) {
-				// todo better way of creating empty entries
 				ZipFileSystemProviderHolder.PROVIDER.newOutputStream(toD).close();
 				toEntry = ZipFSReflect.ZipFS.getEntry(toS, toPath);
 			}
@@ -149,17 +136,19 @@ class ZipFSProvider extends FileSystemProvider {
 		}
 		
 		if(fallback) {
-			ZipFileSystemProviderHolder.PROVIDER.copy(fromD, toD, options);
+			try {
+				ZipFileSystemProviderHolder.PROVIDER.copy(fromD, toD, options);
+			} catch(IOException e) {
+				to.deleteContents(new ZipPath.ZipContents());
+				throw e;
+			}
 		}
-		to.reference = new ZipPath.DataReference(from.reference);
 	}
 	
 	@Override
 	public void move(Path source, Path target, CopyOption... options) throws IOException {
-		ZipPath from = zip(source), to = zip(target);
-		ZipFileSystemProviderHolder.PROVIDER.move(from.delegate, to.delegate, options);
-		to.reference = from.reference;
-		from.reference = null;
+		this.copy(source, target, options);
+		Files.delete(source);
 	}
 	
 	@Override
@@ -208,47 +197,5 @@ class ZipFSProvider extends FileSystemProvider {
 	
 	static Path unwrap(Path path) {
 		return path instanceof ZipPath z ? z.delegate : path;
-	}
-	
-	protected Path uriToPath(URI uri) {
-		String scheme = uri.getScheme();
-		if((scheme == null) || !scheme.equalsIgnoreCase(this.getScheme())) {
-			throw new IllegalArgumentException("URI scheme is not '" + this.getScheme() + "'");
-		}
-		try {
-			// only support legacy JAR URL syntax  jar:{uri}!/{entry} for now
-			String spec = uri.getRawSchemeSpecificPart();
-			int sep = spec.indexOf("!/");
-			if(sep != -1) {
-				spec = spec.substring(0, sep);
-			}
-			return Paths.get(new URI(spec)).toAbsolutePath();
-		} catch(URISyntaxException e) {
-			throw new IllegalArgumentException(e.getMessage(), e);
-		}
-	}
-	
-	private boolean ensureFile(Path path) {
-		try {
-			BasicFileAttributes attrs = Files.readAttributes(path, BasicFileAttributes.class);
-			if(!attrs.isRegularFile()) {
-				throw new UnsupportedOperationException();
-			}
-			return true;
-		} catch(IOException ioe) {
-			return false;
-		}
-	}
-	
-	private ZipFS getZipFileSystem(Path path, Map<String, ?> env) throws IOException {
-		try {
-			return new ZipFS(ZipFileSystemProviderHolder.PROVIDER.newFileSystem(path, env));
-		} catch(ZipException ze) {
-			String pname = path.toString();
-			if(pname.endsWith(".zip") || pname.endsWith(".jar")) {
-				throw ze;
-			}
-			throw new UnsupportedOperationException();
-		}
 	}
 }

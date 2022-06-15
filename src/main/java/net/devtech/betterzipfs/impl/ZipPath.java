@@ -1,6 +1,8 @@
 package net.devtech.betterzipfs.impl;
 
 import java.io.IOException;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.net.URI;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.file.LinkOption;
@@ -8,40 +10,26 @@ import java.nio.file.Path;
 import java.nio.file.WatchEvent;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.Callable;
 
 class ZipPath implements Path {
-	static class DataReference {
-		AtomicInteger refCounter = new AtomicInteger();
-		SeekableByteChannel channel;
-		boolean isWrite;
-		
-		public DataReference(DataReference ref) {
-			this.refCounter = ref.refCounter;
-			this.channel = ref.channel;
-			this.isWrite = ref.isWrite;
-		}
-		
-		public DataReference() {
-		}
-		
-		public DataReference(SeekableByteChannel channel) {
-			this.channel = channel;
-		}
-		
-		void close(boolean force) throws IOException {
-			if(force || (this.refCounter.decrementAndGet() <= 0 && this.channel != null)) {
-				this.channel.close();
-				this.channel = null;
-				this.isWrite = false;
-			}
-			this.refCounter = new AtomicInteger();
+	private static final VarHandle ZIP_CONTENTS_REF_COUNTER;
+	static {
+		try {
+			ZIP_CONTENTS_REF_COUNTER = MethodHandles.privateLookupIn(ZipContents.class, MethodHandles.lookup()).findVarHandle(ZipContents.class, "ref", int.class);
+		} catch(NoSuchFieldException | IllegalAccessException e) {
+			throw ZipFSReflect.rethrow(e);
 		}
 	}
+	static final class ZipContents {
+		int ref;
+		SeekableByteChannel channel;
+		boolean isWrite;
+	}
 	
+	ZipContents contents;
 	final ZipFS fs;
 	final Path delegate;
-	DataReference reference; // todo synchronize
 	Path parent;
 	
 	volatile String str;
@@ -49,18 +37,47 @@ class ZipPath implements Path {
 	public ZipPath(ZipFS fs, Path delegate) {
 		this.fs = fs;
 		this.delegate = delegate;
-		this.reference = new DataReference();
+		ZipContents contents = new ZipContents();
+		ZIP_CONTENTS_REF_COUNTER.setVolatile(contents, 1);
+		this.contents = contents;
 	}
 	
-	public ZipPath(ZipFS fs, Path delegate, DataReference ref) {
-		this.fs = fs;
-		this.delegate = delegate;
-		this.reference = ref;
+	public SeekableByteChannel getOrCreateContents(Callable<SeekableByteChannel> create, boolean isWrite) throws Exception {
+		SeekableByteChannel seek;
+		if((this.contents.isWrite || !isWrite) && this.contents.channel != null) {
+			seek = this.contents.channel;
+		} else {
+			seek = create.call();
+		}
+		return new SeekableByteChannelWrapper(seek);
 	}
 	
-	public ZipPath(ZipFS fs, Path delegate, Path parent, DataReference ref) {
-		this(fs, delegate, ref);
-		this.parent = parent;
+	public void deleteContents(ZipContents newContents) throws IOException {
+		this.flushContents();
+		this.contents = newContents;
+	}
+	
+	public void flushContents() throws IOException {
+		ZipContents contents = this.contents;
+		boolean copy = (int)ZIP_CONTENTS_REF_COUNTER.getAndAdd(contents, -1) > 1;
+		SeekableByteChannel channel = contents.channel;
+		if(copy) {
+			contents.channel = new SeekableByteChannelCopy(channel);
+		} else {
+			contents.channel = null;
+		}
+		contents.isWrite = false;
+		
+		if(channel != null && !(channel instanceof SeekableByteChannelCopy)) {
+			channel.close();
+		}
+	}
+	
+	public void inheritContents(ZipPath path) throws IOException {
+		this.flushContents();
+		if((int)ZIP_CONTENTS_REF_COUNTER.getAndAdd(path.contents, 1) > 0) {
+			this.contents = path.contents;
+		}
 	}
 	
 	@Override
@@ -78,13 +95,6 @@ class ZipPath implements Path {
 			return this;
 		}
 		return this.fs.wrap(zipPath);
-	}
-	
-	protected Path wrapRef(Path zipPath) {
-		if(zipPath == this.delegate) {
-			return this;
-		}
-		return this.fs.wrapRef(this, zipPath);
 	}
 	
 	@Override
@@ -157,12 +167,12 @@ class ZipPath implements Path {
 	
 	@Override
 	public Path toAbsolutePath() {
-		return wrapRef(this.delegate.toAbsolutePath());
+		return wrap(this.delegate.toAbsolutePath());
 	}
 	
 	@Override
 	public Path toRealPath(LinkOption... options) throws IOException {
-		return wrapRef(this.delegate.toRealPath(options));
+		return wrap(this.delegate.toRealPath(options));
 	}
 	
 	@Override

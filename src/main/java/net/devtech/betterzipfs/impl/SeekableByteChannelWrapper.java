@@ -7,16 +7,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 class SeekableByteChannelWrapper implements SeekableByteChannel {
 	final SeekableByteChannel channel;
-	final AtomicInteger refCounter;
 	boolean isClosed;
 	long pos, size = -1;
 	
-	public SeekableByteChannelWrapper(SeekableByteChannel channel, AtomicInteger counter) {
+	public SeekableByteChannelWrapper(SeekableByteChannel channel) {
 		this.channel = channel;
-		this.refCounter = counter;
-		if(counter != null) {
-			counter.incrementAndGet();
-		}
 	}
 	
 	@Override
@@ -69,9 +64,6 @@ class SeekableByteChannelWrapper implements SeekableByteChannel {
 	public void close() throws IOException {
 		if(!this.isClosed) {
 			this.isClosed = true;
-			if(this.refCounter == null || this.refCounter.decrementAndGet() <= 0) {
-				this.channel.close();
-			}
 		}
 	}
 }

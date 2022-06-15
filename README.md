@@ -33,6 +33,19 @@ public class ZipFsTests {
 ```
 
 BetterZipFileSystem was made to address this problem, and it does
+## Gradle
+```gradle
+// should work for both groovy and kotlin DSL
+repositories {
+	maven {
+		url = uri("https://storage.googleapis.com/devan-maven/")
+	}
+}
+
+dependencies {
+    implementation("net.devtech:betterZipFS:1.0.0")
+}
+```
 
 ## Example Usage
 ```java

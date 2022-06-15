@@ -2,7 +2,6 @@ package net.devtech.betterzipfs.impl;
 
 import java.io.IOException;
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.file.AccessMode;
 import java.nio.file.CopyOption;
@@ -13,7 +12,6 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileAttribute;
@@ -23,7 +21,6 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
-import java.util.zip.ZipException;
 
 // todo implement newOutputStream/newInputStream/newFileChannel
 class ZipFSProvider extends FileSystemProvider {
@@ -192,10 +189,10 @@ class ZipFSProvider extends FileSystemProvider {
 	}
 	
 	static ZipPath zip(Path path) {
-		return (ZipPath) path;
+		return ((ZipPath) path).unmirror();
 	}
 	
 	static Path unwrap(Path path) {
-		return path instanceof ZipPath z ? z.delegate : path;
+		return path instanceof ZipPath z ? z.unmirror().delegate : path;
 	}
 }

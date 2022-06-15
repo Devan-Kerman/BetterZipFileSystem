@@ -16,7 +16,7 @@ import java.util.function.UnaryOperator;
 
 class ZipFS extends FileSystem {
 	final FileSystem zipfs;
-	final Map<ByteArrayWrapper, ZipPath> pathCache = new ConcurrentHashMap<>();
+	final Map<ByteArrayWrapper, ZipPath> pathCache = new ConcurrentHashMap<>(); // todo avoid cache unless zip path actually has stuff in it
 	final UnaryOperator<Path> converter = this::wrap;
 	final Path root;
 	
@@ -40,9 +40,14 @@ class ZipFS extends FileSystem {
 	}
 	
 	public Path wrap(Path zipFile) {
+		return new ZipPath(this, zipFile);
+	}
+	
+	public ZipPath wrapCached(Path zipFile, ZipPath alternative) {
 		byte[] path = ZipFSReflect.ZipPath.getResolvedPath(zipFile);
 		ByteArrayWrapper wrapper = new ByteArrayWrapper(path);
-		return this.pathCache.computeIfAbsent(wrapper, name -> new ZipPath(this, zipFile));
+		ZipPath paths = this.pathCache.putIfAbsent(wrapper, alternative);
+		return paths == null ? alternative : paths;
 	}
 	
 	@Override

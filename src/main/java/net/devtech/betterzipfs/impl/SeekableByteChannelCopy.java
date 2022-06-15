@@ -7,7 +7,7 @@ import java.nio.channels.SeekableByteChannel;
 
 class SeekableByteChannelCopy implements SeekableByteChannel {
 	boolean isOpen = true;
-	final ByteBuffer contents;
+	public final ByteBuffer contents;
 	
 	public SeekableByteChannelCopy(ByteBuffer buffer) {
 		this.contents = buffer;

@@ -2,6 +2,7 @@ package net.devtech.betterzipfs.impl;
 
 import java.io.IOException;
 import java.net.URI;
+import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.file.AccessMode;
 import java.nio.file.CopyOption;
@@ -118,6 +119,7 @@ public class ZipFSProvider extends FileSystemProvider {
 		zip.getFileSystem().remove(zip);
 	}
 	
+	private static final Set<OpenOption> WRITE_ARGS = Set.of(StandardOpenOption.WRITE);
 	@Override
 	public void copy(Path source, Path target, CopyOption... options) throws IOException {
 		ZipPath from = zip(source), to = zip(target);
@@ -132,11 +134,25 @@ public class ZipFSProvider extends FileSystemProvider {
 		if(!Files.isSameFile(ZipFSReflect.ZipFS.getZipFile(fromS), ZipFSReflect.ZipFS.getZipFile(toS))) {
 			byte[] fromPath = ZipFSReflect.ZipPath.getResolvedPath(fromD), toPath = ZipFSReflect.ZipPath.getResolvedPath(toD);
 			BasicFileAttributes fromEntry = ZipFSReflect.ZipFS.getEntry(fromS, fromPath), toEntry = ZipFSReflect.ZipFS.getEntry(toS, toPath);
+			
+			int method = ZipFSReflect.Entry.getCompressionMethod(fromEntry);
+			if(method == 1) {
+				// read from CEN
+				SeekableByteChannel readChannel = this.newByteChannel(source, Set.of());
+				ByteBuffer contents = new SeekableByteChannelCopy(readChannel).contents;
+				try(SeekableByteChannel writeChannel = this.newByteChannel(source, WRITE_ARGS)) {
+					writeChannel.write(contents);
+				}
+				fromEntry = ZipFSReflect.ZipFS.getEntry(fromS, fromPath);
+				method = ZipFSReflect.Entry.getCompressionMethod(fromEntry);
+			}
+			
 			if(toEntry == null) {
 				ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.newOutputStream(toD).close();
 				toEntry = ZipFSReflect.ZipFS.getEntry(toS, toPath);
 			}
-			if(ZipFSReflect.Entry.getCompressionMethod(fromEntry) == ZipFSReflect.Entry.getCompressionMethod(toEntry)) {
+			
+			if(method == 2 && method == ZipFSReflect.Entry.getCompressionMethod(toEntry)) {
 				ZipFSReflect.Entry.setBytes(toEntry, ZipFSReflect.Entry.getBytes(fromEntry));
 				ZipFSReflect.Entry.setExtraBytes(toEntry, ZipFSReflect.Entry.getExtraBytes(fromEntry));
 				ZipFSReflect.Entry.setCRC(toEntry, ZipFSReflect.Entry.getCRC(fromEntry));

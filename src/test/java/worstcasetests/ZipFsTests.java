@@ -19,9 +19,10 @@ public class ZipFsTests {
 			String test = "hello my friends, how do you do?";
 			//Files.writeString(path, test, StandardCharsets.UTF_8);
 			//Files.copy(path, dst.getPath("dst.txt"), StandardCopyOption.REPLACE_EXISTING);
-			try(BufferedReader is = Files.newBufferedReader(dst.getPath("dst.txt"))) {
-				System.out.println(is.readLine());
-			}
+			Files.copy(path, dst.getPath("dst.txt"), StandardCopyOption.REPLACE_EXISTING);
+			//try(BufferedReader is = Files.newBufferedReader(dst.getPath("dst.txt"))) {
+			//	System.out.println(is.readLine());
+			//}
 		}
 	}
 }

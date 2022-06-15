@@ -81,19 +81,25 @@ class ZipPath implements Path {
 	
 	public void flushContents() throws IOException {
 		ZipContents contents = this.contents;
-		boolean copy = (int)ZIP_CONTENTS_REF_COUNTER.getAndAdd(contents, -1) > 1;
+		boolean isReferenceStillUsed = (int)ZIP_CONTENTS_REF_COUNTER.getAndAdd(contents, -1) > 1;
 		SeekableByteChannel channel = contents.channel;
-		boolean original = channel != null && !(channel instanceof SeekableByteChannelCopy);
+		boolean shouldCopy = channel != null && !(channel instanceof SeekableByteChannelCopy);
 		contents.isWrite = false;
-		if(copy) {
-			if(original) {
+		if(isReferenceStillUsed) {
+			if(shouldCopy) {
 				contents.channel = new SeekableByteChannelCopy(channel);
 			}
 		} else {
 			contents.channel = null;
 		}
 		
-		if(original) {
+		ZipContents newContents = new ZipContents();
+		newContents.isWrite = contents.isWrite;
+		newContents.channel = contents.channel;
+		newContents.ref = 1;
+		this.contents = newContents;
+		
+		if(shouldCopy) {
 			channel.close();
 		}
 	}

@@ -24,10 +24,14 @@ class SeekableByteChannelCopy implements SeekableByteChannel {
 	
 	@Override
 	public int read(ByteBuffer dst) throws IOException {
-		int toRead = Math.min(this.contents.remaining(), dst.remaining());
+		ByteBuffer contents = this.contents;
+		int toRead = Math.min(contents.remaining(), dst.remaining());
+		if(toRead == 0) return -1;
 		int position = dst.position();
-		dst.put(position, this.contents, this.contents.position(), toRead);
+		int position1 = contents.position();
+		dst.put(position, contents, position1, toRead);
 		dst.position(position + toRead);
+		contents.position(position1 + toRead);
 		return toRead;
 	}
 	

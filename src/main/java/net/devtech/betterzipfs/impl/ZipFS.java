@@ -16,7 +16,7 @@ import java.util.function.UnaryOperator;
 
 public class ZipFS extends FileSystem {
 	public final FileSystem zipfs;
-	final Map<ByteArrayWrapper, ZipPath> pathCache = new ConcurrentHashMap<>();
+	public final Map<ByteArrayWrapper, ZipPath> pathCache = new ConcurrentHashMap<>();
 	final UnaryOperator<Path> converter = this::wrap;
 	final Path root;
 	final ZipFSProvider provider;
@@ -44,7 +44,7 @@ public class ZipFS extends FileSystem {
 	public Path wrap(Path zipFile) {
 		return new ZipPath(this, zipFile);
 	}
-	
+	//[47, 116, 101, 115, 116, 46, 116, 120, 116]
 	public ZipPath wrapCached(Path zipFile, ZipPath alternative) {
 		byte[] path = ZipFSReflect.ZipPath.getResolvedPath(zipFile);
 		ByteArrayWrapper wrapper = new ByteArrayWrapper(path);
@@ -63,7 +63,7 @@ public class ZipFS extends FileSystem {
 			value.deleteContents(null);
 		}
 		this.zipfs.close();
-		this.provider.FILE_SYSTEMS.remove(this.zipfs, this);
+		ZipFSProvider.FILE_SYSTEMS.remove(this.zipfs, this);
 	}
 	
 	@Override
@@ -120,5 +120,11 @@ public class ZipFS extends FileSystem {
 	@Override
 	public String toString() {
 		return this.zipfs.toString();
+	}
+	
+	public void flush() throws IOException {
+		for(ZipPath value : this.pathCache.values()) {
+			value.flushContents();
+		}
 	}
 }

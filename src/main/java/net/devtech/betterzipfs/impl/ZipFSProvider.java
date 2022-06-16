@@ -82,7 +82,7 @@ public class ZipFSProvider extends FileSystemProvider {
 	@Override
 	public SeekableByteChannel newByteChannel(Path path, Set<? extends OpenOption> options, FileAttribute<?>... attrs) throws IOException {
 		boolean write = options.contains(StandardOpenOption.WRITE) || options.contains(StandardOpenOption.APPEND);
-		ZipPath zip = zip(path);
+		ZipPath zip = zip(path, true);
 		try {
 			return zip.getOrCreateContents(() -> ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.newByteChannel(zip.delegate, options, attrs), write);
 		} catch(Exception e) {
@@ -92,14 +92,14 @@ public class ZipFSProvider extends FileSystemProvider {
 	
 	@Override
 	public DirectoryStream<Path> newDirectoryStream(Path dir, DirectoryStream.Filter<? super Path> filter) throws IOException {
-		ZipFS system = zip(dir).getFileSystem();
+		ZipFS system = zip(dir, false).getFileSystem();
 		for(ZipPath value : system.pathCache.values()) {
 			if(value.startsWith(dir)) {
 				value.flushContents();
 			}
 		}
 		return new DirectoryStream<>() {
-			final DirectoryStream<Path> original = ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.newDirectoryStream(unwrap(dir), filter);
+			final DirectoryStream<Path> original = ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.newDirectoryStream(unwrap(dir, false), filter);
 			
 			@Override
 			public Iterator<Path> iterator() {
@@ -115,21 +115,20 @@ public class ZipFSProvider extends FileSystemProvider {
 	
 	@Override
 	public void createDirectory(Path dir, FileAttribute<?>... attrs) throws IOException {
-		ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.createDirectory(unwrap(dir), attrs);
+		ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.createDirectory(unwrap(dir, false), attrs);
 	}
 	
 	@Override
 	public void delete(Path path) throws IOException {
-		ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.delete(unwrap(path));
-		ZipPath zip = zip(path);
+		ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.delete(unwrap(path, false));
+		ZipPath zip = zip(path, true);
 		zip.deleteContents(new ZipPath.ZipContents());
 		zip.getFileSystem().remove(zip);
 	}
 	
-	private static final Set<OpenOption> WRITE_ARGS = Set.of(StandardOpenOption.WRITE);
 	@Override
 	public void copy(Path source, Path target, CopyOption... options) throws IOException {
-		ZipPath from = zip(source), to = zip(target);
+		ZipPath from = zip(source, true), to = zip(target, true);
 		Path fromD = from.delegate;
 		Path toD = to.delegate;
 		
@@ -139,31 +138,45 @@ public class ZipFSProvider extends FileSystemProvider {
 		FileSystem fromS = fromD.getFileSystem(), toS = toD.getFileSystem();
 		boolean fallback = true;
 		if(!Files.isSameFile(ZipFSReflect.ZipFS.getZipFile(fromS), ZipFSReflect.ZipFS.getZipFile(toS))) {
-			byte[] fromPath = ZipFSReflect.ZipPath.getResolvedPath(fromD), toPath = ZipFSReflect.ZipPath.getResolvedPath(toD);
-			BasicFileAttributes fromEntry = ZipFSReflect.ZipFS.getEntry(fromS, fromPath), toEntry = ZipFSReflect.ZipFS.getEntry(toS, toPath);
-			
-			int method = ZipFSReflect.Entry.getCompressionMethod(fromEntry);
-			int type = ZipFSReflect.Entry.getType(fromEntry);
-			if(type == 1 || type == 4) {
-				InputStream stream = ZipFSReflect.Entry.getCENInputStream(fromS, fromEntry);
-				ZipFSReflect.Entry.setType(fromEntry, 2);
-				ZipFSReflect.Entry.setBytes(fromEntry, stream.readAllBytes());
-				type = 2;
-			}
-			
-			if(toEntry == null) {
-				ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.newOutputStream(toD).close();
-				toEntry = ZipFSReflect.ZipFS.getEntry(toS, toPath);
-			}
-			
-			if(type == 2 && method == ZipFSReflect.Entry.getCompressionMethod(toEntry)) {
-				ZipFSReflect.Entry.setBytes(toEntry, ZipFSReflect.Entry.getBytes(fromEntry));
-				ZipFSReflect.Entry.setExtraBytes(toEntry, ZipFSReflect.Entry.getExtraBytes(fromEntry));
-				ZipFSReflect.Entry.setCRC(toEntry, ZipFSReflect.Entry.getCRC(fromEntry));
-				ZipFSReflect.Entry.setSize(toEntry, ZipFSReflect.Entry.getSize(fromEntry));
-				ZipFSReflect.Entry.setCSize(toEntry, ZipFSReflect.Entry.getCSize(fromEntry));
-				ZipFSReflect.ZipFS.update(toS, toEntry);
-				fallback = false;
+			try {
+				byte[] fromPath = ZipFSReflect.ZipPath.getResolvedPath(fromD), toPath = ZipFSReflect.ZipPath.getResolvedPath(toD);
+				BasicFileAttributes fromEntry = ZipFSReflect.ZipFS.getEntry(fromS, fromPath), toEntry = ZipFSReflect.ZipFS.getEntry(toS, toPath);
+				ZipFSReflect.ZipFS.beginWrite(toS);
+				ZipFSReflect.ZipFS.beginWrite(fromS);
+				int method = ZipFSReflect.Entry.getCompressionMethod(fromEntry);
+				int type = ZipFSReflect.Entry.getType(fromEntry);
+				if(type == 1 || type == 4) {
+					InputStream stream = ZipFSReflect.Entry.getCENInputStream(fromS, fromEntry);
+					ZipFSReflect.Entry.setType(fromEntry, 2);
+					ZipFSReflect.Entry.setBytes(fromEntry, stream.readAllBytes());
+					type = 2;
+				}
+				
+				if(toEntry == null) {
+					ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.newOutputStream(toD).close();
+					ZipFSReflect.ZipFS.endWrite(toS);
+					ZipFSReflect.ZipFS.endWrite(fromS);
+					toEntry = ZipFSReflect.ZipFS.getEntry(toS, toPath);
+					ZipFSReflect.ZipFS.beginWrite(toS);
+					ZipFSReflect.ZipFS.beginWrite(fromS);
+				}
+				
+				if(toEntry != null && type == 2 && method == ZipFSReflect.Entry.getCompressionMethod(toEntry)) {
+					ZipFSReflect.Entry.setBytes(toEntry, ZipFSReflect.Entry.getBytes(fromEntry));
+					ZipFSReflect.Entry.setExtraBytes(toEntry, ZipFSReflect.Entry.getExtraBytes(fromEntry));
+					ZipFSReflect.Entry.setCRC(toEntry, ZipFSReflect.Entry.getCRC(fromEntry));
+					ZipFSReflect.Entry.setSize(toEntry, ZipFSReflect.Entry.getSize(fromEntry));
+					ZipFSReflect.Entry.setCSize(toEntry, ZipFSReflect.Entry.getCSize(fromEntry));
+					ZipFSReflect.ZipFS.endWrite(toS);
+					ZipFSReflect.ZipFS.endWrite(fromS);
+					ZipFSReflect.ZipFS.update(toS, toEntry);
+					fallback = false;
+				}
+			} finally {
+				if(fallback) {
+					ZipFSReflect.ZipFS.endWrite(toS);
+					ZipFSReflect.ZipFS.endWrite(fromS);
+				}
 			}
 		}
 		
@@ -185,37 +198,37 @@ public class ZipFSProvider extends FileSystemProvider {
 	
 	@Override
 	public boolean isSameFile(Path path, Path path2) throws IOException {
-		return ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.isSameFile(unwrap(path), unwrap(path2));
+		return ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.isSameFile(unwrap(path, false), unwrap(path2, false));
 	}
 	
 	@Override
 	public boolean isHidden(Path path) throws IOException {
-		return ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.isHidden(unwrap(path));
+		return ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.isHidden(unwrap(path, false));
 	}
 	
 	@Override
 	public FileStore getFileStore(Path path) throws IOException {
-		return new ZipFileStore(ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.getFileStore(unwrap(path)));
+		return new ZipFileStore(ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.getFileStore(unwrap(path, false)));
 	}
 	
 	@Override
 	public void checkAccess(Path path, AccessMode... modes) throws IOException {
-		ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.checkAccess(unwrap(path), modes);
+		ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.checkAccess(unwrap(path, false), modes);
 	}
 	
 	@Override
 	public <V extends FileAttributeView> V getFileAttributeView(Path path, Class<V> type, LinkOption... options) {
-		return ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.getFileAttributeView(unwrap(path), type, options);
+		return ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.getFileAttributeView(unwrap(path, false), type, options);
 	}
 	
 	@Override
 	public <A extends BasicFileAttributes> A readAttributes(Path path, Class<A> type, LinkOption... options) throws IOException {
-		return ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.readAttributes(unwrap(path), type, options);
+		return ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.readAttributes(unwrap(path, false), type, options);
 	}
 	
 	@Override
 	public Map<String, Object> readAttributes(Path path, String attributes, LinkOption... options) throws IOException {
-		return ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.readAttributes(unwrap(path), attributes, options);
+		return ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.readAttributes(unwrap(path, false), attributes, options);
 	}
 	
 	@Override
@@ -223,11 +236,12 @@ public class ZipFSProvider extends FileSystemProvider {
 		ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.setAttribute(path, attribute, value, options);
 	}
 	
-	static ZipPath zip(Path path) {
-		return ((ZipPath) path).unmirror();
+	static ZipPath zip(Path path, boolean unmirror) {
+		ZipPath path1 = (ZipPath) path;
+		return unmirror ? path1.unmirror() : path1;
 	}
 	
-	static Path unwrap(Path path) {
-		return path instanceof ZipPath z ? z.unmirror().delegate : path;
+	static Path unwrap(Path path, boolean unmirror) {
+		return path instanceof ZipPath z ? (unmirror ? z.unmirror() : z).delegate : path;
 	}
 }

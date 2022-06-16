@@ -12,8 +12,10 @@ import java.nio.file.attribute.BasicFileAttributes;
 
 public class ZipFSReflect {
 	public static final Class<?> ZIPFS;
-	private static final MethodHandle ZIPFS_SYNC, ZIPFS_ENTRY, ZIPPATH_RESOLVED_PATH, ZIPFS_GETZIPFILE, ZIPFS_UPDATE, BEGIN_WRITE, END_WRITE, ENTRY_IN_STREAM_CTOR;
-	private static final VarHandle ENTRY_METHOD, ENTRY_BYTES, ZIPFS_HAS_UPDATE, ENTRY_CRC, ENTRY_CSIZE, ENTRY_SIZE, ENTRY_EXTRA, ENTRY_TYPE, ZIPFS_CH;
+	private static final MethodHandle ZIPFS_SYNC, ZIPFS_ENTRY, ZIPPATH_RESOLVED_PATH, ZIPFS_GETZIPFILE, ZIPFS_UPDATE, BEGIN_WRITE, END_WRITE,
+			ENTRY_IN_STREAM_CTOR, BEGIN_READ, END_READ;
+	private static final VarHandle ENTRY_METHOD, ENTRY_BYTES, ZIPFS_HAS_UPDATE, ENTRY_CRC, ENTRY_CSIZE, ENTRY_SIZE, ENTRY_EXTRA, ENTRY_TYPE,
+			ZIPFS_CH;
 	
 	static {
 		boolean needsUnsafe = false;
@@ -57,7 +59,10 @@ public class ZipFSReflect {
 			}
 			
 			ZIPFS_CH = privateLookup.findVarHandle(zipfs, "ch", SeekableByteChannel.class);
-			ENTRY_IN_STREAM_CTOR = privateLookup.findConstructor(entryStream, MethodType.methodType(void.class, zipfs, entry, SeekableByteChannel.class));
+			ENTRY_IN_STREAM_CTOR = privateLookup.findConstructor(
+					entryStream,
+					MethodType.methodType(void.class, zipfs, entry, SeekableByteChannel.class)
+			);
 			ZIPFS_SYNC = privateLookup.findVirtual(zipfs, "sync", MethodType.methodType(void.class));
 			ZIPFS_ENTRY = privateLookup.findVirtual(zipfs, "getEntry", MethodType.methodType(entry, byte[].class));
 			ZIPFS_GETZIPFILE = privateLookup.findVirtual(zipfs, "getZipFile", MethodType.methodType(Path.class));
@@ -71,14 +76,15 @@ public class ZipFSReflect {
 			ZIPFS_HAS_UPDATE = privateLookup.findVarHandle(zipfs, "hasUpdate", boolean.class);
 			BEGIN_WRITE = privateLookup.findVirtual(zipfs, "beginWrite", MethodType.methodType(void.class));
 			END_WRITE = privateLookup.findVirtual(zipfs, "endWrite", MethodType.methodType(void.class));
+			BEGIN_READ = privateLookup.findVirtual(zipfs, "beginRead", MethodType.methodType(void.class));
+			END_READ = privateLookup.findVirtual(zipfs, "endRead", MethodType.methodType(void.class));
 			ENTRY_EXTRA = privateLookup.findVarHandle(entry, "extra", byte[].class);
 			ENTRY_TYPE = privateLookup.findVarHandle(entry, "type", int.class);
 			
 			ZIPFS = zipfs;
 		} catch(ReflectiveOperationException e) {
 			if(!needsUnsafe) {
-				new UnsupportedOperationException(
-						"Unsafe Reflection Restriction Bypass is Unsupported on this machine!",
+				new UnsupportedOperationException("Unsafe Reflection Restriction Bypass is Unsupported on this machine!",
 						UnsafeReflection.ERROR
 				).printStackTrace();
 			}
@@ -100,6 +106,38 @@ public class ZipFSReflect {
 	}
 	
 	public static final class ZipFS {
+		public static void beginWrite(FileSystem system) {
+			try {
+				BEGIN_WRITE.invoke(system);
+			} catch(Throwable e) {
+				rethrow(e);
+			}
+		}
+		
+		public static void endWrite(FileSystem system) {
+			try {
+				END_WRITE.invoke(system);
+			} catch(Throwable e) {
+				rethrow(e);
+			}
+		}
+		
+		public static void beginRead(FileSystem system) {
+			try {
+				BEGIN_READ.invoke(system);
+			} catch(Throwable e) {
+				rethrow(e);
+			}
+		}
+		
+		public static void endRead(FileSystem system) {
+			try {
+				END_READ.invoke(system);
+			} catch(Throwable e) {
+				rethrow(e);
+			}
+		}
+		
 		public static void sync(FileSystem system) {
 			try {
 				BEGIN_WRITE.invoke(system);

@@ -29,8 +29,8 @@ class ZipPath implements Path {
 		volatile boolean isWrite;
 	}
 	
-	ZipContents contents; // null if file is deleted or this is a mirror instance
-	ZipPath mirror;
+	volatile ZipContents contents; // null if file is deleted or this is a mirror instance
+	volatile ZipPath mirror;
 	final ZipFS fs;
 	final Path delegate;
 	Path parent;
@@ -51,19 +51,28 @@ class ZipPath implements Path {
 		} if(this.contents == null) {
 			return this.mirror;
 		} else {
-			ZipPath paths = this.fs.wrapCached(this.delegate, this);
-			if(paths == this) { // not mirror
-				this.mirror = NOT_MIRROR;
-				return this;
-			} else {
-				this.mirror = paths;
-				this.contents = null;
-				return paths;
+			synchronized(this) {
+				// check after aquire lock
+				if(this.mirror == NOT_MIRROR) {
+					return this;
+				} if(this.contents == null) {
+					return this.mirror;
+				}
+				
+				ZipPath paths = this.fs.wrapCached(this.delegate, this);
+				if(paths == this) { // not mirror
+					this.mirror = NOT_MIRROR;
+					return this;
+				} else {
+					this.mirror = paths;
+					this.contents = null;
+					return paths;
+				}
 			}
 		}
 	}
 	
-	public SeekableByteChannel getOrCreateContents(Callable<SeekableByteChannel> create, boolean isWrite) throws Exception {
+	public synchronized SeekableByteChannel getOrCreateContents(Callable<SeekableByteChannel> create, boolean isWrite) throws Exception {
 		SeekableByteChannel seek;
 		if((this.contents.isWrite || !isWrite) && this.contents.channel != null) {
 			seek = this.contents.channel;
@@ -71,6 +80,7 @@ class ZipPath implements Path {
 			ZipContents contents = this.contents;
 			if(isWrite) {
 				this.flushContents();
+				ZIP_CONTENTS_REF_COUNTER.getAndAdd(contents, -1);
 				contents = new ZipContents();
 				contents.ref = 1;
 				this.contents = contents;
@@ -81,21 +91,19 @@ class ZipPath implements Path {
 		return new SeekableByteChannelWrapper(seek);
 	}
 	
-	public void deleteContents(ZipContents newContents) throws IOException {
+	public synchronized void deleteContents(ZipContents newContents) throws IOException {
 		this.flushContents();
+		ZIP_CONTENTS_REF_COUNTER.getAndAdd(this.contents, -1);
 		this.contents = newContents;
 	}
 	
-	public void flushContents() throws IOException {
+	public synchronized void flushContents() throws IOException {
 		ZipContents contents = this.contents;
-		boolean isReferenceStillUsed = (int)ZIP_CONTENTS_REF_COUNTER.getAndAdd(contents, -1) > 1;
 		SeekableByteChannel channel = contents.channel;
 		boolean shouldCopy = channel != null && !(channel instanceof SeekableByteChannelCopy);
 		contents.isWrite = false;
-		if(isReferenceStillUsed) {
-			if(shouldCopy) {
-				contents.channel = new SeekableByteChannelCopy(channel);
-			}
+		if(shouldCopy) {
+			contents.channel = new SeekableByteChannelCopy(channel);
 		} else {
 			contents.channel = null;
 		}
@@ -105,9 +113,10 @@ class ZipPath implements Path {
 		}
 	}
 	
-	public void inheritContents(ZipPath path) throws IOException {
+	public synchronized void inheritContents(ZipPath path) throws IOException {
 		this.flushContents();
 		if((int)ZIP_CONTENTS_REF_COUNTER.getAndAdd(path.contents, 1) > 0) {
+			ZIP_CONTENTS_REF_COUNTER.getAndAdd(this.contents, -1);
 			this.contents = path.contents;
 		}
 	}
@@ -165,13 +174,13 @@ class ZipPath implements Path {
 	
 	@Override
 	public boolean startsWith(Path other) {
-		other = ZipFSProvider.unwrap(other);
+		other = ZipFSProvider.unwrap(other, false);
 		return this.delegate.startsWith(other);
 	}
 	
 	@Override
 	public boolean endsWith(Path other) {
-		other = ZipFSProvider.unwrap(other);
+		other = ZipFSProvider.unwrap(other, false);
 		return this.delegate.endsWith(other);
 	}
 	
@@ -182,14 +191,14 @@ class ZipPath implements Path {
 	
 	@Override
 	public Path resolve(Path other) {
-		other = ZipFSProvider.unwrap(other);
+		other = ZipFSProvider.unwrap(other, false);
 		return this.wrap(this.delegate.resolve(other));
 	}
 	
 	@Override
 	public Path relativize(Path other) {
-		other = ZipFSProvider.unwrap(other);
-		return this.wrap(this.delegate.resolve(other));
+		other = ZipFSProvider.unwrap(other, false);
+		return this.wrap(this.delegate.relativize(other));
 	}
 	
 	@Override
@@ -214,7 +223,7 @@ class ZipPath implements Path {
 	
 	@Override
 	public int compareTo(Path other) {
-		other = ZipFSProvider.unwrap(other);
+		other = ZipFSProvider.unwrap(other, false);
 		return this.delegate.compareTo(other);
 	}
 	

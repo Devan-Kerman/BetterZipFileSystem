@@ -93,9 +93,7 @@ public class ZipFSProvider extends FileSystemProvider {
 	
 	public static Stream<Path> chaoticStream(FileSystem system) throws IOException {
 		if(system instanceof BetterZipFS z) {
-			for(ZipPath value : z.pathCache.values()) {
-				value.flushContents();
-			}
+			z.flush(null);
 			return ZipFSProvider.unorderedOptimizedStream(z.zipfs).map(path -> new ZipPath(z, path));
 		} else if(ZipFSReflect.ZIPFS.isInstance(system)) {
 			return ZipFSProvider.unorderedOptimizedStream(system);
@@ -121,6 +119,10 @@ public class ZipFSProvider extends FileSystemProvider {
 		return streams.get(0);
 	}
 	
+	public static void flush(Path path) throws IOException {
+		zip(path, true).flushContents();
+	}
+	
 	public static Stream<Path> unorderedOptimizedStream(FileSystem zipfs) {
 		Map<?, ?> inodes = ZipFSReflect.ZipFS.getInodes(zipfs);
 		return inodes.values().stream().map(ZipFSReflect.IndexNode::getName).map(n -> ZipFSReflect.ZipPath.fromName(zipfs, n, true));
@@ -129,11 +131,7 @@ public class ZipFSProvider extends FileSystemProvider {
 	@Override
 	public DirectoryStream<Path> newDirectoryStream(Path dir, DirectoryStream.Filter<? super Path> filter) throws IOException {
 		BetterZipFS system = zip(dir, false).getFileSystem();
-		for(ZipPath value : system.pathCache.values()) {
-			if(value.startsWith(dir)) {
-				value.flushContents();
-			}
-		}
+		system.flush(dir);
 		return new DirectoryStream<>() {
 			final DirectoryStream<Path> original = ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.newDirectoryStream(unwrap(dir, false), filter);
 			

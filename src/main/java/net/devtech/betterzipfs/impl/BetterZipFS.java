@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.UnaryOperator;
+import java.util.stream.Stream;
 
 public class BetterZipFS extends FileSystem {
 	public final FileSystem zipfs;
@@ -44,6 +45,7 @@ public class BetterZipFS extends FileSystem {
 	public Path wrap(Path zipFile) {
 		return new ZipPath(this, zipFile);
 	}
+	
 	//[47, 116, 101, 115, 116, 46, 116, 120, 116]
 	public ZipPath wrapCached(Path zipFile, ZipPath alternative) {
 		byte[] path = ZipFSReflect.ZipPath.getResolvedPath(zipFile);
@@ -122,9 +124,17 @@ public class BetterZipFS extends FileSystem {
 		return this.zipfs.toString();
 	}
 	
-	public void flush() throws IOException {
-		for(ZipPath value : this.pathCache.values()) {
-			value.flushContents();
+	public void flush(Path path) {
+		Stream<ZipPath> stream = this.pathCache.values().stream().parallel();
+		if(path != null) {
+			stream = stream.filter(z -> z.startsWith(path));
 		}
+		stream.forEach(z -> {
+			try {
+				z.flushContents();
+			} catch(IOException e) {
+				throw ZipFSReflect.rethrow(e);
+			}
+		});
 	}
 }

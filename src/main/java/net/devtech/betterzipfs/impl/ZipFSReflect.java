@@ -157,7 +157,11 @@ public class ZipFSReflect {
 		public static void sync(FileSystem system) {
 			try {
 				BEGIN_WRITE.invoke(system);
-				Files.createFile(ZipFSReflect.ZipFS.getZipFile(system)); // weird bug, idk either
+				// I don't know why I have to do this, but I do
+				Path file = ZipFS.getZipFile(system);
+				if(!Files.exists(file)) {
+					Files.createFile(file);
+				}
 				ZIPFS_SYNC.invoke(system);
 			} catch(Throwable e) {
 				rethrow(e);

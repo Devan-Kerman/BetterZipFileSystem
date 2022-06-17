@@ -75,11 +75,11 @@ public final class ZipFS {
 	 * write the ZipFileSystem to the disk without closing it
 	 * @param cast whether to throw an exception or silently fail if the FileSystem is not a zip file system
 	 */
-	public static void flush(FileSystem fs, boolean cast) throws IOException {
+	public static void flush(FileSystem fs, boolean cast) {
 		FileSystem zipfs;
 		if(fs instanceof BetterZipFS z) {
 			zipfs = z.zipfs;
-			z.flush();
+			z.flush(null);
 		} else if(ZipFSReflect.ZIPFS.isInstance(fs)) {
 			zipfs = fs;
 		} else if(cast) {
@@ -89,5 +89,9 @@ public final class ZipFS {
 		}
 		
 		ZipFSReflect.ZipFS.sync(zipfs);
+	}
+	
+	public static void flush(Path path) throws IOException {
+		ZipFSProvider.flush(path);
 	}
 }

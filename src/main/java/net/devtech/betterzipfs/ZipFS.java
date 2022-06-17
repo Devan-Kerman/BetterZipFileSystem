@@ -4,10 +4,16 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
+import net.devtech.betterzipfs.impl.BetterZipFS;
 import net.devtech.betterzipfs.impl.ZipFSInternal;
+import net.devtech.betterzipfs.impl.ZipFSProvider;
 import net.devtech.betterzipfs.impl.ZipFSReflect;
 
 public final class ZipFS {
@@ -16,6 +22,11 @@ public final class ZipFS {
 	
 	private ZipFS() {}
 	public static final Map<String, String> CREATE_SETTINGS = Map.of("create", "true");
+	
+	public static Stream<Path> unorderedFastStream(FileSystem system) throws IOException {
+		return ZipFSProvider.chaoticStream(system);
+	}
+	
 	/**
 	 * @deprecated unsafe
 	 */
@@ -66,7 +77,7 @@ public final class ZipFS {
 	 */
 	public static void flush(FileSystem fs, boolean cast) throws IOException {
 		FileSystem zipfs;
-		if(fs instanceof net.devtech.betterzipfs.impl.ZipFS z) {
+		if(fs instanceof BetterZipFS z) {
 			zipfs = z.zipfs;
 			z.flush();
 		} else if(ZipFSReflect.ZIPFS.isInstance(fs)) {

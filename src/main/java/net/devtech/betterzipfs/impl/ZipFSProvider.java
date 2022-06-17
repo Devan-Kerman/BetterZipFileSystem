@@ -3,7 +3,6 @@ package net.devtech.betterzipfs.impl;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
-import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.file.AccessMode;
 import java.nio.file.CopyOption;
@@ -19,20 +18,26 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.FileAttributeView;
 import java.nio.file.spi.FileSystemProvider;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.stream.Stream;
 
 // todo implement newOutputStream/newInputStream/newFileChannel
 public class ZipFSProvider extends FileSystemProvider {
-	public static boolean overrideDefaultImplementation = System.getProperty("bzfs","override").equals("override");
-	
-	static final Map<FileSystem, ZipFS> FILE_SYSTEMS = new HashMap<>();
+	static final Map<FileSystem, BetterZipFS> FILE_SYSTEMS = new HashMap<>();
+	public static boolean overrideDefaultImplementation = System.getProperty("bzfs", "override").equals("override");
 	private static ZipFSProvider instance;
 	
-	final Function<FileSystem, ZipFS> wrap = fs -> new ZipFS(fs, this);
+	final Function<FileSystem, BetterZipFS> wrap = fs -> new BetterZipFS(fs, this);
+	
+	public ZipFSProvider() {
+		instance = this;
+	}
 	
 	public static ZipFSProvider getProvider() {
 		if(instance == null) {
@@ -40,10 +45,6 @@ public class ZipFSProvider extends FileSystemProvider {
 		} else {
 			return instance;
 		}
-	}
-	
-	public ZipFSProvider() {
-		instance = this;
 	}
 	
 	@Override
@@ -90,9 +91,44 @@ public class ZipFSProvider extends FileSystemProvider {
 		}
 	}
 	
+	public static Stream<Path> chaoticStream(FileSystem system) throws IOException {
+		if(system instanceof BetterZipFS z) {
+			for(ZipPath value : z.pathCache.values()) {
+				value.flushContents();
+			}
+			return ZipFSProvider.unorderedOptimizedStream(z.zipfs).map(path -> new ZipPath(z, path));
+		} else if(ZipFSReflect.ZIPFS.isInstance(system)) {
+			return ZipFSProvider.unorderedOptimizedStream(system);
+		} else {
+			return walk(system);
+		}
+	}
+	
+	public static Stream<Path> walk(FileSystem system) throws IOException { // binary merge
+		List<Stream<Path>> streams = new ArrayList<>();
+		for(Path directory : system.getRootDirectories()) {
+			streams.add(Files.walk(directory));
+		}
+		
+		while(streams.size() > 1) {
+			for(int i = streams.size() - 1; i > 0; i -= 2) {
+				Stream<Path> a = streams.remove(i);
+				Stream<Path> b = streams.remove(i - 1);
+				streams.add(Stream.concat(a, b));
+			}
+		}
+		
+		return streams.get(0);
+	}
+	
+	public static Stream<Path> unorderedOptimizedStream(FileSystem zipfs) {
+		Map<?, ?> inodes = ZipFSReflect.ZipFS.getInodes(zipfs);
+		return inodes.values().stream().map(ZipFSReflect.IndexNode::getName).map(n -> ZipFSReflect.ZipPath.fromName(zipfs, n, true));
+	}
+	
 	@Override
 	public DirectoryStream<Path> newDirectoryStream(Path dir, DirectoryStream.Filter<? super Path> filter) throws IOException {
-		ZipFS system = zip(dir, false).getFileSystem();
+		BetterZipFS system = zip(dir, false).getFileSystem();
 		for(ZipPath value : system.pathCache.values()) {
 			if(value.startsWith(dir)) {
 				value.flushContents();
@@ -103,7 +139,7 @@ public class ZipFSProvider extends FileSystemProvider {
 			
 			@Override
 			public Iterator<Path> iterator() {
-				return new MappingIterable.Iterator<>(this.original.iterator(), p -> ((ZipFS) dir.getFileSystem()).wrap(p));
+				return new MappingIterable.Iterator<>(this.original.iterator(), p -> ((BetterZipFS) dir.getFileSystem()).wrap(p));
 			}
 			
 			@Override
@@ -137,46 +173,44 @@ public class ZipFSProvider extends FileSystemProvider {
 		
 		FileSystem fromS = fromD.getFileSystem(), toS = toD.getFileSystem();
 		boolean fallback = true;
-		if(!Files.isSameFile(ZipFSReflect.ZipFS.getZipFile(fromS), ZipFSReflect.ZipFS.getZipFile(toS))) {
-			try {
-				byte[] fromPath = ZipFSReflect.ZipPath.getResolvedPath(fromD), toPath = ZipFSReflect.ZipPath.getResolvedPath(toD);
-				BasicFileAttributes fromEntry = ZipFSReflect.ZipFS.getEntry(fromS, fromPath), toEntry = ZipFSReflect.ZipFS.getEntry(toS, toPath);
+		try {
+			byte[] fromPath = ZipFSReflect.ZipPath.getResolvedPath(fromD), toPath = ZipFSReflect.ZipPath.getResolvedPath(toD);
+			BasicFileAttributes fromEntry = ZipFSReflect.ZipFS.getEntry(fromS, fromPath), toEntry = ZipFSReflect.ZipFS.getEntry(toS, toPath);
+			ZipFSReflect.ZipFS.beginWrite(toS);
+			ZipFSReflect.ZipFS.beginWrite(fromS);
+			int method = ZipFSReflect.Entry.getCompressionMethod(fromEntry);
+			int type = ZipFSReflect.Entry.getType(fromEntry);
+			if(type == 1 || type == 4) {
+				InputStream stream = ZipFSReflect.Entry.getCENInputStream(fromS, fromEntry);
+				ZipFSReflect.Entry.setType(fromEntry, 2);
+				ZipFSReflect.Entry.setBytes(fromEntry, stream.readAllBytes());
+				type = 2;
+			}
+			
+			if(toEntry == null) {
+				ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.newOutputStream(toD).close();
+				ZipFSReflect.ZipFS.endWrite(toS);
+				ZipFSReflect.ZipFS.endWrite(fromS);
+				toEntry = ZipFSReflect.ZipFS.getEntry(toS, toPath);
 				ZipFSReflect.ZipFS.beginWrite(toS);
 				ZipFSReflect.ZipFS.beginWrite(fromS);
-				int method = ZipFSReflect.Entry.getCompressionMethod(fromEntry);
-				int type = ZipFSReflect.Entry.getType(fromEntry);
-				if(type == 1 || type == 4) {
-					InputStream stream = ZipFSReflect.Entry.getCENInputStream(fromS, fromEntry);
-					ZipFSReflect.Entry.setType(fromEntry, 2);
-					ZipFSReflect.Entry.setBytes(fromEntry, stream.readAllBytes());
-					type = 2;
-				}
-				
-				if(toEntry == null) {
-					ZipFileSystemProviderHolder.ZIP_FS_PROVIDER.newOutputStream(toD).close();
-					ZipFSReflect.ZipFS.endWrite(toS);
-					ZipFSReflect.ZipFS.endWrite(fromS);
-					toEntry = ZipFSReflect.ZipFS.getEntry(toS, toPath);
-					ZipFSReflect.ZipFS.beginWrite(toS);
-					ZipFSReflect.ZipFS.beginWrite(fromS);
-				}
-				
-				if(toEntry != null && type == 2 && method == ZipFSReflect.Entry.getCompressionMethod(toEntry)) {
-					ZipFSReflect.Entry.setBytes(toEntry, ZipFSReflect.Entry.getBytes(fromEntry));
-					ZipFSReflect.Entry.setExtraBytes(toEntry, ZipFSReflect.Entry.getExtraBytes(fromEntry));
-					ZipFSReflect.Entry.setCRC(toEntry, ZipFSReflect.Entry.getCRC(fromEntry));
-					ZipFSReflect.Entry.setSize(toEntry, ZipFSReflect.Entry.getSize(fromEntry));
-					ZipFSReflect.Entry.setCSize(toEntry, ZipFSReflect.Entry.getCSize(fromEntry));
-					ZipFSReflect.ZipFS.endWrite(toS);
-					ZipFSReflect.ZipFS.endWrite(fromS);
-					ZipFSReflect.ZipFS.update(toS, toEntry);
-					fallback = false;
-				}
-			} finally {
-				if(fallback) {
-					ZipFSReflect.ZipFS.endWrite(toS);
-					ZipFSReflect.ZipFS.endWrite(fromS);
-				}
+			}
+			
+			if(toEntry != null && type == 2 && method == ZipFSReflect.Entry.getCompressionMethod(toEntry)) {
+				ZipFSReflect.Entry.setBytes(toEntry, ZipFSReflect.Entry.getBytes(fromEntry));
+				ZipFSReflect.Entry.setExtraBytes(toEntry, ZipFSReflect.Entry.getExtraBytes(fromEntry));
+				ZipFSReflect.Entry.setCRC(toEntry, ZipFSReflect.Entry.getCRC(fromEntry));
+				ZipFSReflect.Entry.setSize(toEntry, ZipFSReflect.Entry.getSize(fromEntry));
+				ZipFSReflect.Entry.setCSize(toEntry, ZipFSReflect.Entry.getCSize(fromEntry));
+				ZipFSReflect.ZipFS.endWrite(toS);
+				ZipFSReflect.ZipFS.endWrite(fromS);
+				ZipFSReflect.ZipFS.update(toS, toEntry);
+				fallback = false;
+			}
+		} finally {
+			if(fallback) {
+				ZipFSReflect.ZipFS.endWrite(toS);
+				ZipFSReflect.ZipFS.endWrite(fromS);
 			}
 		}
 		

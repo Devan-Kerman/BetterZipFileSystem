@@ -4,7 +4,7 @@ plugins {
 }
 
 group 'net.devtech'
-version '1.1.2'
+version '1.1.4'
 
 java {
     withSourcesJar()

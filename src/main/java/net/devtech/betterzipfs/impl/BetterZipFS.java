@@ -14,14 +14,14 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.UnaryOperator;
 
-public class ZipFS extends FileSystem {
+public class BetterZipFS extends FileSystem {
 	public final FileSystem zipfs;
 	public final Map<ByteArrayWrapper, ZipPath> pathCache = new ConcurrentHashMap<>();
 	final UnaryOperator<Path> converter = this::wrap;
 	final Path root;
 	final ZipFSProvider provider;
 	
-	public ZipFS(FileSystem zipfs, ZipFSProvider provider) {
+	public BetterZipFS(FileSystem zipfs, ZipFSProvider provider) {
 		this.zipfs = zipfs;
 		this.provider = provider;
 		Iterable<Path> directories = zipfs.getRootDirectories();

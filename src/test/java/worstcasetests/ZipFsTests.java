@@ -22,6 +22,7 @@ public class ZipFsTests {
 			try(BufferedReader is = Files.newBufferedReader(dst.getPath("/dst.txt"))) {
 				System.out.println(is.readLine());
 			}
+			
 		}
 	}
 }

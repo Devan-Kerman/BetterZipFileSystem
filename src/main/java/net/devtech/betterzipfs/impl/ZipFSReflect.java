@@ -7,15 +7,18 @@ import java.lang.invoke.MethodType;
 import java.lang.invoke.VarHandle;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.file.FileSystem;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 public class ZipFSReflect {
 	public static final Class<?> ZIPFS;
 	private static final MethodHandle ZIPFS_SYNC, ZIPFS_ENTRY, ZIPPATH_RESOLVED_PATH, ZIPFS_GETZIPFILE, ZIPFS_UPDATE, BEGIN_WRITE, END_WRITE,
-			ENTRY_IN_STREAM_CTOR, BEGIN_READ, END_READ;
+			ENTRY_IN_STREAM_CTOR, BEGIN_READ, END_READ, ZIPPATH_CTOR;
 	private static final VarHandle ENTRY_METHOD, ENTRY_BYTES, ZIPFS_HAS_UPDATE, ENTRY_CRC, ENTRY_CSIZE, ENTRY_SIZE, ENTRY_EXTRA, ENTRY_TYPE,
-			ZIPFS_CH;
+			ZIPFS_CH, ZIPFS_INODES, INODE_NAME;
 	
 	static {
 		boolean needsUnsafe = false;
@@ -49,20 +52,21 @@ public class ZipFSReflect {
 			
 			MethodHandles.Lookup lookup = MethodHandles.lookup();
 			MethodHandles.Lookup privateLookup = MethodHandles.privateLookupIn(zipfs, lookup);
-			Class<?> entry = null, entryStream = null;
+			Class<?> entry = null, entryStream = null, inode = null;
 			for(Class<?> inner : zipfs.getDeclaredClasses()) {
-				if(inner.getSimpleName().equals("Entry")) {
+				String name = inner.getSimpleName();
+				if(name.equals("Entry")) {
 					entry = inner;
-				} else if(inner.getName().endsWith("EntryInputStream")) {
+				} else if(name.equals("EntryInputStream")) {
 					entryStream = inner;
+				} else if(name.equals("IndexNode")) {
+					inode = inner;
 				}
 			}
 			
 			ZIPFS_CH = privateLookup.findVarHandle(zipfs, "ch", SeekableByteChannel.class);
-			ENTRY_IN_STREAM_CTOR = privateLookup.findConstructor(
-					entryStream,
-					MethodType.methodType(void.class, zipfs, entry, SeekableByteChannel.class)
-			);
+			ENTRY_IN_STREAM_CTOR = privateLookup.findConstructor(entryStream, MethodType.methodType(void.class, zipfs, entry, SeekableByteChannel.class));
+			INODE_NAME = privateLookup.findVarHandle(inode, "name", byte[].class);
 			ZIPFS_SYNC = privateLookup.findVirtual(zipfs, "sync", MethodType.methodType(void.class));
 			ZIPFS_ENTRY = privateLookup.findVirtual(zipfs, "getEntry", MethodType.methodType(entry, byte[].class));
 			ZIPFS_GETZIPFILE = privateLookup.findVirtual(zipfs, "getZipFile", MethodType.methodType(Path.class));
@@ -73,7 +77,9 @@ public class ZipFSReflect {
 			ENTRY_CSIZE = privateLookup.findVarHandle(entry, "csize", long.class);
 			ENTRY_SIZE = privateLookup.findVarHandle(entry, "size", long.class);
 			ZIPPATH_RESOLVED_PATH = privateLookup.findVirtual(zipPath, "getResolvedPath", MethodType.methodType(byte[].class));
+			ZIPPATH_CTOR = privateLookup.findConstructor(zipPath, MethodType.methodType(void.class, zipfs, byte[].class, boolean.class));
 			ZIPFS_HAS_UPDATE = privateLookup.findVarHandle(zipfs, "hasUpdate", boolean.class);
+			ZIPFS_INODES = privateLookup.findVarHandle(zipfs, "inodes", LinkedHashMap.class);
 			BEGIN_WRITE = privateLookup.findVirtual(zipfs, "beginWrite", MethodType.methodType(void.class));
 			END_WRITE = privateLookup.findVirtual(zipfs, "endWrite", MethodType.methodType(void.class));
 			BEGIN_READ = privateLookup.findVirtual(zipfs, "beginRead", MethodType.methodType(void.class));
@@ -105,7 +111,17 @@ public class ZipFSReflect {
 		throw (T) throwable;
 	}
 	
+	public static final class IndexNode {
+		public static byte[] getName(Object inode) {
+			return (byte[]) INODE_NAME.get(inode);
+		}
+	}
+	
 	public static final class ZipFS {
+		public static Map<?, ?> getInodes(FileSystem system) {
+			return (Map<?, ?>) ZIPFS_INODES.get(system);
+		}
+		
 		public static void beginWrite(FileSystem system) {
 			try {
 				BEGIN_WRITE.invoke(system);
@@ -141,6 +157,7 @@ public class ZipFSReflect {
 		public static void sync(FileSystem system) {
 			try {
 				BEGIN_WRITE.invoke(system);
+				Files.createFile(ZipFSReflect.ZipFS.getZipFile(system)); // weird bug, idk either
 				ZIPFS_SYNC.invoke(system);
 			} catch(Throwable e) {
 				rethrow(e);
@@ -180,6 +197,7 @@ public class ZipFSReflect {
 				rethrow(e);
 			}
 		}
+		
 	}
 	
 	public static final class Entry {
@@ -249,6 +267,14 @@ public class ZipFSReflect {
 		public static byte[] getResolvedPath(Path path) {
 			try {
 				return (byte[]) ZIPPATH_RESOLVED_PATH.invoke(path);
+			} catch(Throwable e) {
+				throw rethrow(e);
+			}
+		}
+		
+		public static Path fromName(FileSystem zipfs, byte[] name, boolean isNormalized) {
+			try {
+				return (Path) ZIPPATH_CTOR.invoke(zipfs, name, isNormalized);
 			} catch(Throwable e) {
 				throw rethrow(e);
 			}

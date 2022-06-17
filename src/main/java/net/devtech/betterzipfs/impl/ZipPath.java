@@ -31,13 +31,13 @@ class ZipPath implements Path {
 	
 	volatile ZipContents contents; // null if file is deleted or this is a mirror instance
 	volatile ZipPath mirror;
-	final ZipFS fs;
+	final BetterZipFS fs;
 	final Path delegate;
 	Path parent;
 	
 	volatile String str;
 	
-	public ZipPath(ZipFS fs, Path delegate) {
+	public ZipPath(BetterZipFS fs, Path delegate) {
 		this.fs = fs;
 		this.delegate = delegate;
 		ZipContents contents = new ZipContents();
@@ -122,7 +122,7 @@ class ZipPath implements Path {
 	}
 	
 	@Override
-	public ZipFS getFileSystem() {
+	public BetterZipFS getFileSystem() {
 		return this.fs;
 	}
 	
